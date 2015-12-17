@@ -1,23 +1,21 @@
 # Addons
 
-Addons are dynamically linked shared objects. They can provide glue to C and
+Addons are dynamically-linked shared objects. They can provide glue to C and
 C++ libraries. The API (at the moment) is rather complex, involving
 knowledge of several libraries:
 
  - V8 JavaScript, a C++ library. Used for interfacing with JavaScript:
    creating objects, calling functions, etc.  Documented mostly in the
    `v8.h` header file (`deps/v8/include/v8.h` in the Node.js source
-   tree), which is also available
-   [online](https://v8docs.nodesource.com/).
+   tree), which is also available [online][].
 
- - [libuv](https://github.com/libuv/libuv), C event loop library.
-   Anytime one needs to wait for a file descriptor to become readable,
-   wait for a timer, or wait for a signal to be received one will need
-   to interface with libuv. That is, if you perform any I/O, libuv will
-   need to be used.
+ - [libuv][], C event loop library. Anytime one needs to wait for a file
+   descriptor to become readable, wait for a timer, or wait for a signal
+   to be received, one will need to interface with libuv. That is, if you
+   perform any I/O, libuv will need to be used.
 
- - Internal Node.js libraries. Most importantly is the `node::ObjectWrap`
-   class which you will likely want to derive from.
+ - Internal Node.js libraries. The most important class is `node::ObjectWrap`
+   which you will likely want to derive from.
 
  - Others. Look in `deps/` for what else is available.
 
@@ -25,13 +23,12 @@ Node.js statically compiles all its dependencies into the executable.
 When compiling your module, you don't need to worry about linking to
 any of these libraries.
 
-All of the following examples are available for
-[download](https://github.com/rvagg/node-addon-examples) and may be
-used as a starting-point for your own Addon.
+All of the following examples are available for [download][] and may
+be used as a starting-point for your own Addon.
 
 ## Hello world
 
-To get started let's make a small Addon which is the C++ equivalent of
+To get started, let's make a small Addon which is the C++ equivalent of
 the following JavaScript code:
 
     module.exports.hello = function() { return 'world'; };
@@ -71,13 +68,13 @@ Note that all Node.js addons must export an initialization function:
 There is no semi-colon after `NODE_MODULE` as it's not a function (see
 `node.h`).
 
-The `module_name` needs to match the filename of the final binary (minus the
-.node suffix).
+The `module_name` needs to match the filename of the final binary (excluding
+the .node suffix).
 
 The source code needs to be built into `addon.node`, the binary Addon. To
-do this we create a file called `binding.gyp` which describes the configuration
+do this, we create a file called `binding.gyp` which describes the configuration
 to build your module in a JSON-like format. This file gets compiled by
-[node-gyp](https://github.com/nodejs/node-gyp).
+[node-gyp][].
 
     {
       "targets": [
@@ -92,17 +89,17 @@ The next step is to generate the appropriate project build files for the
 current platform. Use `node-gyp configure` for that.
 
 Now you will have either a `Makefile` (on Unix platforms) or a `vcxproj` file
-(on Windows) in the `build/` directory. Next invoke the `node-gyp build`
+(on Windows) in the `build/` directory. Next, invoke the `node-gyp build`
 command.
 
 Now you have your compiled `.node` bindings file! The compiled bindings end up
 in `build/Release/`.
 
-You can now use the binary addon in an Node.js project `hello.js` by pointing
+You can now use the binary addon in a Node.js project `hello.js` by pointing
 `require` to the recently built `hello.node` module:
 
     // hello.js
-    var addon = require('./build/Release/addon');
+    const addon = require('./build/Release/addon');
 
     console.log(addon.hello()); // 'world'
 
@@ -113,12 +110,11 @@ Please see patterns below for further information or
 ## Addon patterns
 
 Below are some addon patterns to help you get started. Consult the online
-[v8 reference](http://izs.me/v8-docs/main.html) for help with the various v8
-calls, and v8's [Embedder's Guide](http://code.google.com/apis/v8/embed.html)
-for an explanation of several concepts used such as handles, scopes,
-function templates, etc.
+[v8 reference][] for help with the various v8 calls, and v8's
+[Embedder's Guide][] for an explanation of several concepts used such as
+handles, scopes, function templates, etc.
 
-In order to use these examples you need to compile them using `node-gyp`.
+In order to use these examples, you need to compile them using `node-gyp`.
 Create the following `binding.gyp` file:
 
     {
@@ -131,7 +127,7 @@ Create the following `binding.gyp` file:
     }
 
 In cases where there is more than one `.cc` file, simply add the file name to
-the `sources` array, e.g.:
+the `sources` array. For example:
 
     "sources": ["addon.cc", "myexample.cc"]
 
@@ -193,7 +189,7 @@ function calls and return a result. This is the main and only needed source
 You can test it with the following JavaScript snippet:
 
     // test.js
-    var addon = require('./build/Release/addon');
+    const addon = require('./build/Release/addon');
 
     console.log( 'This should be eight:', addon.add(3,5) );
 
@@ -238,10 +234,10 @@ the full `module` object as the second argument. This allows the addon
 to completely overwrite `exports` with a single function instead of
 adding the function as a property of `exports`.
 
-To test it run the following JavaScript snippet:
+To test it, run the following JavaScript snippet:
 
     // test.js
-    var addon = require('./build/Release/addon');
+    const addon = require('./build/Release/addon');
 
     addon(function(msg){
       console.log(msg); // 'hello world'
@@ -286,7 +282,7 @@ the string passed to `createObject()`:
 To test it in JavaScript:
 
     // test.js
-    var addon = require('./build/Release/addon');
+    const addon = require('./build/Release/addon');
 
     var obj1 = addon('hello');
     var obj2 = addon('world');
@@ -340,7 +336,7 @@ wraps a C++ function:
 To test:
 
     // test.js
-    var addon = require('./build/Release/addon');
+    const addon = require('./build/Release/addon');
 
     var fn = addon();
     console.log(fn()); // 'hello world'
@@ -348,8 +344,8 @@ To test:
 
 ### Wrapping C++ objects
 
-Here we will create a wrapper for a C++ object/class `MyObject` that can be
-instantiated in JavaScript through the `new` operator. First prepare the main
+Here, we will create a wrapper for a C++ object/class `MyObject` that can be
+instantiated in JavaScript through the `new` operator. First, prepare the main
 module `addon.cc`:
 
     // addon.cc
@@ -369,7 +365,7 @@ module `addon.cc`:
 
     }  // namespace demo
 
-Then in `myobject.h` make your wrapper inherit from `node::ObjectWrap`:
+Then, in `myobject.h`, make your wrapper inherit from `node::ObjectWrap`:
 
     // myobject.h
     #ifndef MYOBJECT_H
@@ -398,7 +394,7 @@ Then in `myobject.h` make your wrapper inherit from `node::ObjectWrap`:
 
     #endif
 
-And in `myobject.cc` implement the various methods that you want to expose.
+And in `myobject.cc`, implement the various methods that you want to expose.
 Here we expose the method `plusOne` by adding it to the constructor's
 prototype:
 
@@ -474,7 +470,7 @@ prototype:
 Test it with:
 
     // test.js
-    var addon = require('./build/Release/addon');
+    const addon = require('./build/Release/addon');
 
     var obj = new addon.MyObject(10);
     console.log( obj.plusOne() ); // 11
@@ -484,7 +480,8 @@ Test it with:
 ### Factory of wrapped objects
 
 This is useful when you want to be able to create native objects without
-explicitly instantiating them with the `new` operator in JavaScript, e.g.
+explicitly instantiating them with the `new` operator in JavaScript. For
+example:
 
     var obj = addon.createObject();
     // instead of:
@@ -519,8 +516,9 @@ Let's register our `createObject` method in `addon.cc`:
 
     }  // namespace demo
 
-In `myobject.h` we now introduce the static method `NewInstance` that takes
-care of instantiating the object (i.e. it does the job of `new` in JavaScript):
+In `myobject.h`, we now introduce the static method `NewInstance` that takes
+care of instantiating the object. In other words, it does the job of `new` in
+JavaScript:
 
     // myobject.h
     #ifndef MYOBJECT_H
@@ -632,7 +630,7 @@ The implementation is similar to the above in `myobject.cc`:
 Test it with:
 
     // test.js
-    var createObject = require('./build/Release/addon');
+    const createObject = require('./build/Release/addon');
 
     var obj = createObject(10);
     console.log( obj.plusOne() ); // 11
@@ -648,9 +646,9 @@ Test it with:
 ### Passing wrapped objects around
 
 In addition to wrapping and returning C++ objects, you can pass them around
-by unwrapping them with Node.js's `node::ObjectWrap::Unwrap` helper function.
-In the following `addon.cc` we introduce a function `add()` that can take on two
-`MyObject` objects:
+by unwrapping them with the Node.js helper function `node::ObjectWrap::Unwrap`.
+In the following `addon.cc`, we introduce a function `add()` that can take on
+two `MyObject` objects:
 
     // addon.cc
     #include <node.h>
@@ -694,7 +692,7 @@ In the following `addon.cc` we introduce a function `add()` that can take on two
 
     }  // namespace demo
 
-To make things interesting we introduce a public method in `myobject.h` so we
+To make things interesting, we introduce a public method in `myobject.h` so we
 can probe private values after unwrapping the object:
 
     // myobject.h
@@ -725,7 +723,7 @@ can probe private values after unwrapping the object:
 
     #endif
 
-The implementation of `myobject.cc` is similar as before:
+The implementation of `myobject.cc` is similar to before:
 
     // myobject.cc
     #include <node.h>
@@ -794,7 +792,7 @@ The implementation of `myobject.cc` is similar as before:
 Test it with:
 
     // test.js
-    var addon = require('./build/Release/addon');
+    const addon = require('./build/Release/addon');
 
     var obj1 = addon.createObject(10);
     var obj2 = addon.createObject(20);
@@ -808,10 +806,10 @@ Test it with:
 * `callback`: `void (*)(void*)` - A pointer to the function to call at exit.
 * `args`: `void*` - A pointer to pass to the callback at exit.
 
-Registers exit hooks that run after the event loop has ended, but before the VM
+Registers exit hooks that run after the event loop has ended but before the VM
 is killed.
 
-Callbacks are run in last-in, first-out order. AtExit takes two parameters:
+Callbacks are run in last-in first-out order. AtExit takes two parameters:
 a pointer to a callback function to run at exit, and a pointer to untyped
 context data to be passed to that callback.
 
@@ -868,4 +866,11 @@ The file `addon.cc` implements AtExit below:
 Test in JavaScript by running:
 
     // test.js
-    var addon = require('./build/Release/addon');
+    const addon = require('./build/Release/addon');
+
+[online]: https://v8docs.nodesource.com/
+[libuv]: https://github.com/libuv/libuv
+[download]: https://github.com/nodejs/node-addon-examples
+[node-gyp]: https://github.com/nodejs/node-gyp
+[v8 reference]: http://izs.me/v8-docs/main.html
+[Embedder's Guide]: https://code.google.com/apis/v8/embed.html

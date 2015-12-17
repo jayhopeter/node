@@ -2,12 +2,12 @@
 
 <!--type=misc-->
 
-An example of a [web server](http.html) written with Node.js which responds with
-'Hello World':
+An example of a [web server][] written with Node.js which responds with
+`'Hello World'`:
 
-    var http = require('http');
+    const http = require('http');
 
-    http.createServer(function (request, response) {
+    http.createServer( (request, response) => {
       response.writeHead(200, {'Content-Type': 'text/plain'});
       response.end('Hello World\n');
     }).listen(8124);
@@ -21,3 +21,5 @@ it with the node program
     Server running at http://127.0.0.1:8124/
 
 All of the examples in the documentation can be run similarly.
+
+[web server]: http.html

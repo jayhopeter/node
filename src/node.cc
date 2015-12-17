@@ -43,6 +43,10 @@
 #include "v8-profiler.h"
 #include "zlib.h"
 
+#ifdef NODE_ENABLE_VTUNE_PROFILING
+#include "../deps/v8/src/third_party/vtune/v8-vtune.h"
+#endif
+
 #include <errno.h>
 #include <limits.h>  // PATH_MAX
 #include <locale.h>
@@ -64,9 +68,8 @@
 #if defined(_MSC_VER)
 #include <direct.h>
 #include <io.h>
-#include <process.h>
 #define strcasecmp _stricmp
-#define getpid _getpid
+#define getpid GetCurrentProcessId
 #define umask _umask
 typedef int mode_t;
 #else
@@ -141,6 +144,7 @@ static const char** preload_modules = nullptr;
 static bool use_debug_agent = false;
 static bool debug_wait_connect = false;
 static int debug_port = 5858;
+static bool prof_process = false;
 static bool v8_is_profiling = false;
 static bool node_is_initialized = false;
 static node_module* modpending;
@@ -176,6 +180,7 @@ static void PrintErrorString(const char* format, ...) {
       stderr_handle == nullptr ||
       uv_guess_handle(_fileno(stderr)) != UV_TTY) {
     vfprintf(stderr, format, ap);
+    va_end(ap);
     return;
   }
 
@@ -946,17 +951,50 @@ void* ArrayBufferAllocator::Allocate(size_t size) {
   return malloc(size);
 }
 
+static bool DomainHasErrorHandler(const Environment* env,
+                                  const Local<Object>& domain) {
+  HandleScope scope(env->isolate());
 
-static bool IsDomainActive(const Environment* env) {
+  Local<Value> domain_event_listeners_v = domain->Get(env->events_string());
+  if (!domain_event_listeners_v->IsObject())
+    return false;
+
+  Local<Object> domain_event_listeners_o =
+      domain_event_listeners_v.As<Object>();
+
+  Local<Value> domain_error_listeners_v =
+      domain_event_listeners_o->Get(env->error_string());
+
+  if (domain_error_listeners_v->IsFunction() ||
+      (domain_error_listeners_v->IsArray() &&
+      domain_error_listeners_v.As<Array>()->Length() > 0))
+    return true;
+
+  return false;
+}
+
+static bool DomainsStackHasErrorHandler(const Environment* env) {
+  HandleScope scope(env->isolate());
+
   if (!env->using_domains())
     return false;
 
-  Local<Array> domain_array = env->domain_array().As<Array>();
-  if (domain_array->Length() == 0)
+  Local<Array> domains_stack_array = env->domains_stack_array().As<Array>();
+  if (domains_stack_array->Length() == 0)
     return false;
 
-  Local<Value> domain_v = domain_array->Get(0);
-  return !domain_v->IsNull();
+  uint32_t domains_stack_length = domains_stack_array->Length();
+  for (uint32_t i = domains_stack_length; i > 0; --i) {
+    Local<Value> domain_v = domains_stack_array->Get(i - 1);
+    if (!domain_v->IsObject())
+      return false;
+
+    Local<Object> domain = domain_v.As<Object>();
+    if (DomainHasErrorHandler(env, domain))
+      return true;
+  }
+
+  return false;
 }
 
 
@@ -970,7 +1008,7 @@ static bool ShouldAbortOnUncaughtException(Isolate* isolate) {
   bool isEmittingTopLevelDomainError =
       process_object->Get(emitting_top_level_domain_error_key)->BooleanValue();
 
-  return !IsDomainActive(env) || isEmittingTopLevelDomainError;
+  return isEmittingTopLevelDomainError || !DomainsStackHasErrorHandler(env);
 }
 
 
@@ -998,6 +1036,9 @@ void SetupDomainUse(const FunctionCallbackInfo<Value>& args) {
 
   CHECK(args[0]->IsArray());
   env->set_domain_array(args[0].As<Array>());
+
+  CHECK(args[1]->IsArray());
+  env->set_domains_stack_array(args[1].As<Array>());
 
   // Do a little housekeeping.
   env->process_object()->Delete(
@@ -1441,8 +1482,6 @@ void AppendExceptionLine(Environment* env,
   arrow[off + 1] = '\0';
 
   Local<String> arrow_str = String::NewFromUtf8(env->isolate(), arrow);
-  Local<Value> msg;
-  Local<Value> stack;
 
   // Allocation failed, just print it out
   if (arrow_str.IsEmpty() || err_obj.IsEmpty() || !err_obj->IsNativeError())
@@ -1507,8 +1546,10 @@ static void ReportException(Environment* env,
         name.IsEmpty() ||
         name->IsUndefined()) {
       // Not an error object. Just print as-is.
-      node::Utf8Value message(env->isolate(), er);
-      PrintErrorString("%s\n", *message);
+      String::Utf8Value message(er);
+
+      PrintErrorString("%s\n", *message ? *message :
+                                          "<toString() threw exception>");
     } else {
       node::Utf8Value name_string(env->isolate(), name);
       node::Utf8Value message_string(env->isolate(), message);
@@ -2952,6 +2993,11 @@ void SetupProcessObject(Environment* env,
     READONLY_PROPERTY(process, "throwDeprecation", True(env->isolate()));
   }
 
+  // --prof-process
+  if (prof_process) {
+    READONLY_PROPERTY(process, "profProcess", True(env->isolate()));
+  }
+
   // --trace-deprecation
   if (trace_deprecation) {
     READONLY_PROPERTY(process, "traceDeprecation", True(env->isolate()));
@@ -3189,6 +3235,8 @@ static void PrintHelp() {
          "                        is detected after the first tick\n"
          "  --track-heap-objects  track heap object allocations for heap "
          "snapshots\n"
+         "  --prof-process        process v8 profiler output generated\n"
+         "                        using --prof\n"
          "  --v8-options          print v8 command line options\n"
 #if HAVE_OPENSSL
          "  --tls-cipher-list=val use an alternative default TLS cipher list\n"
@@ -3260,7 +3308,8 @@ static void ParseArgs(int* argc,
   new_argv[0] = argv[0];
 
   unsigned int index = 1;
-  while (index < nargs && argv[index][0] == '-') {
+  bool short_circuit = false;
+  while (index < nargs && argv[index][0] == '-' && !short_circuit) {
     const char* const arg = argv[index];
     unsigned int args_consumed = 1;
 
@@ -3321,6 +3370,9 @@ static void ParseArgs(int* argc,
       track_heap_objects = true;
     } else if (strcmp(arg, "--throw-deprecation") == 0) {
       throw_deprecation = true;
+    } else if (strcmp(arg, "--prof-process") == 0) {
+      prof_process = true;
+      short_circuit = true;
     } else if (strcmp(arg, "--v8-options") == 0) {
       new_v8_argv[new_v8_argc] = "--help";
       new_v8_argc += 1;
@@ -3747,6 +3799,7 @@ void Init(int* argc,
   uv_async_init(uv_default_loop(),
                 &dispatch_debug_messages_async,
                 DispatchDebugMessagesAsyncCallback);
+  uv_unref(reinterpret_cast<uv_handle_t*>(&dispatch_debug_messages_async));
 
 #if defined(NODE_V8_OPTIONS)
   // Should come before the call to V8::SetFlagsFromCommandLine()
@@ -4023,6 +4076,9 @@ static void StartNodeInstance(void* arg) {
   Isolate::CreateParams params;
   ArrayBufferAllocator* array_buffer_allocator = new ArrayBufferAllocator();
   params.array_buffer_allocator = array_buffer_allocator;
+#ifdef NODE_ENABLE_VTUNE_PROFILING
+  params.code_event_handler = vTune::GetVtuneCodeEventHandler();
+#endif
   Isolate* isolate = Isolate::New(params);
   if (track_heap_objects) {
     isolate->GetHeapProfiler()->StartTrackingHeapObjects(true);
@@ -4054,11 +4110,8 @@ static void StartNodeInstance(void* arg) {
     env->set_trace_sync_io(trace_sync_io);
 
     // Enable debugger
-    if (instance_data->use_debug_agent()) {
+    if (instance_data->use_debug_agent())
       EnableDebug(env);
-    } else {
-      uv_unref(reinterpret_cast<uv_handle_t*>(&dispatch_debug_messages_async));
-    }
 
     {
       SealHandleScope seal(isolate);

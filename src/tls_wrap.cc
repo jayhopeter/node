@@ -36,11 +36,11 @@ TLSWrap::TLSWrap(Environment* env,
                  Kind kind,
                  StreamBase* stream,
                  SecureContext* sc)
-    : SSLWrap<TLSWrap>(env, sc, kind),
-      StreamBase(env),
-      AsyncWrap(env,
+    : AsyncWrap(env,
                 env->tls_wrap_constructor_function()->NewInstance(),
                 AsyncWrap::PROVIDER_TLSWRAP),
+      SSLWrap<TLSWrap>(env, sc, kind),
+      StreamBase(env),
       sc_(sc),
       stream_(stream),
       enc_in_(nullptr),
@@ -409,6 +409,7 @@ void TLSWrap::ClearOut() {
     if (read <= 0)
       break;
 
+    char* current = out;
     while (read > 0) {
       int avail = read;
 
@@ -416,10 +417,11 @@ void TLSWrap::ClearOut() {
       OnAlloc(avail, &buf);
       if (static_cast<int>(buf.len) < avail)
         avail = buf.len;
-      memcpy(buf.base, out, avail);
+      memcpy(buf.base, current, avail);
       OnRead(avail, &buf);
 
       read -= avail;
+      current += avail;
     }
   }
 
@@ -857,8 +859,7 @@ int TLSWrap::SelectSNIContextCallback(SSL* s, int* ad, void* arg) {
   p->sni_context_.Reset(env->isolate(), ctx);
 
   SecureContext* sc = Unwrap<SecureContext>(ctx.As<Object>());
-  InitNPN(sc);
-  SSL_set_SSL_CTX(s, sc->ctx_);
+  p->SetSNIContext(sc);
   return SSL_TLSEXT_ERR_OK;
 }
 #endif  // SSL_CTRL_SET_TLSEXT_SERVERNAME_CB

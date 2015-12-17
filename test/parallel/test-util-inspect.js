@@ -2,6 +2,7 @@
 var common = require('../common');
 var assert = require('assert');
 var util = require('util');
+const vm = require('vm');
 
 assert.equal(util.inspect(1), '1');
 assert.equal(util.inspect(false), 'false');
@@ -12,7 +13,7 @@ assert.equal(util.inspect(undefined), 'undefined');
 assert.equal(util.inspect(null), 'null');
 assert.equal(util.inspect(/foo(bar\n)?/gi), '/foo(bar\\n)?/gi');
 assert.equal(util.inspect(new Date('Sun, 14 Feb 2010 11:48:40 GMT')),
-  new Date('2010-02-14T12:48:40+01:00').toString());
+  new Date('2010-02-14T12:48:40+01:00').toISOString());
 
 assert.equal(util.inspect('\n\u0001'), "'\\n\\u0001'");
 
@@ -40,6 +41,120 @@ assert.equal(util.inspect(Object.create({},
   {visible: {value: 1, enumerable: true}, hidden: {value: 2}})),
   '{ visible: 1 }'
 );
+
+for (const showHidden of [true, false]) {
+  const ab = new ArrayBuffer(4);
+  const dv = new DataView(ab, 1, 2);
+  assert.equal(util.inspect(ab, showHidden), 'ArrayBuffer { byteLength: 4 }');
+  assert.equal(util.inspect(new DataView(ab, 1, 2), showHidden),
+               'DataView {\n' +
+               '  byteLength: 2,\n' +
+               '  byteOffset: 1,\n' +
+               '  buffer: ArrayBuffer { byteLength: 4 } }');
+  assert.equal(util.inspect(ab, showHidden), 'ArrayBuffer { byteLength: 4 }');
+  assert.equal(util.inspect(dv, showHidden),
+               'DataView {\n' +
+               '  byteLength: 2,\n' +
+               '  byteOffset: 1,\n' +
+               '  buffer: ArrayBuffer { byteLength: 4 } }');
+  ab.x = 42;
+  dv.y = 1337;
+  assert.equal(util.inspect(ab, showHidden),
+               'ArrayBuffer { byteLength: 4, x: 42 }');
+  assert.equal(util.inspect(dv, showHidden),
+               'DataView {\n' +
+               '  byteLength: 2,\n' +
+               '  byteOffset: 1,\n' +
+               '  buffer: ArrayBuffer { byteLength: 4, x: 42 },\n' +
+               '  y: 1337 }');
+}
+
+// Now do the same checks but from a different context
+for (const showHidden of [true, false]) {
+  const ab = vm.runInNewContext('new ArrayBuffer(4)');
+  const dv = vm.runInNewContext('new DataView(ab, 1, 2)', { ab: ab });
+  assert.equal(util.inspect(ab, showHidden), 'ArrayBuffer { byteLength: 4 }');
+  assert.equal(util.inspect(new DataView(ab, 1, 2), showHidden),
+               'DataView {\n' +
+               '  byteLength: 2,\n' +
+               '  byteOffset: 1,\n' +
+               '  buffer: ArrayBuffer { byteLength: 4 } }');
+  assert.equal(util.inspect(ab, showHidden), 'ArrayBuffer { byteLength: 4 }');
+  assert.equal(util.inspect(dv, showHidden),
+               'DataView {\n' +
+               '  byteLength: 2,\n' +
+               '  byteOffset: 1,\n' +
+               '  buffer: ArrayBuffer { byteLength: 4 } }');
+  ab.x = 42;
+  dv.y = 1337;
+  assert.equal(util.inspect(ab, showHidden),
+               'ArrayBuffer { byteLength: 4, x: 42 }');
+  assert.equal(util.inspect(dv, showHidden),
+               'DataView {\n' +
+               '  byteLength: 2,\n' +
+               '  byteOffset: 1,\n' +
+               '  buffer: ArrayBuffer { byteLength: 4, x: 42 },\n' +
+               '  y: 1337 }');
+}
+
+
+[ Float32Array,
+  Float64Array,
+  Int16Array,
+  Int32Array,
+  Int8Array,
+  Uint16Array,
+  Uint32Array,
+  Uint8Array,
+  Uint8ClampedArray ].forEach(constructor => {
+    const length = 2;
+    const byteLength = length * constructor.BYTES_PER_ELEMENT;
+    const array = new constructor(new ArrayBuffer(byteLength), 0, length);
+    array[0] = 65;
+    array[1] = 97;
+    assert.equal(util.inspect(array, true),
+                 `${constructor.name} [\n` +
+                 `  65,\n` +
+                 `  97,\n` +
+                 `  [BYTES_PER_ELEMENT]: ${constructor.BYTES_PER_ELEMENT},\n` +
+                 `  [length]: ${length},\n` +
+                 `  [byteLength]: ${byteLength},\n` +
+                 `  [byteOffset]: 0,\n` +
+                 `  [buffer]: ArrayBuffer { byteLength: ${byteLength} } ]`);
+    assert.equal(util.inspect(array, false), `${constructor.name} [ 65, 97 ]`);
+  });
+
+// Now check that declaring a TypedArray in a different context works the same
+[ Float32Array,
+  Float64Array,
+  Int16Array,
+  Int32Array,
+  Int8Array,
+  Uint16Array,
+  Uint32Array,
+  Uint8Array,
+  Uint8ClampedArray ].forEach(constructor => {
+    const length = 2;
+    const byteLength = length * constructor.BYTES_PER_ELEMENT;
+    const array = vm.runInNewContext('new constructor(new ArrayBuffer(' +
+                                     'byteLength), 0, length)',
+                                     { constructor: constructor,
+                                       byteLength: byteLength,
+                                       length: length
+                                     });
+    array[0] = 65;
+    array[1] = 97;
+    assert.equal(util.inspect(array, true),
+                 `${constructor.name} [\n` +
+                 `  65,\n` +
+                 `  97,\n` +
+                 `  [BYTES_PER_ELEMENT]: ${constructor.BYTES_PER_ELEMENT},\n` +
+                 `  [length]: ${length},\n` +
+                 `  [byteLength]: ${byteLength},\n` +
+                 `  [byteOffset]: 0,\n` +
+                 `  [buffer]: ArrayBuffer { byteLength: ${byteLength} } ]`);
+    assert.equal(util.inspect(array, false), `${constructor.name} [ 65, 97 ]`);
+  });
 
 // Due to the hash seed randomization it's not deterministic the order that
 // the following ways this hash is displayed.
@@ -105,7 +220,7 @@ assert.equal(util.inspect(value), '{ /123/gi aprop: 42 }');
 // Dates with properties
 value = new Date('Sun, 14 Feb 2010 11:48:40 GMT');
 value.aprop = 42;
-assert.equal(util.inspect(value), '{ Sun, 14 Feb 2010 11:48:40 GMT aprop: 42 }'
+assert.equal(util.inspect(value), '{ 2010-02-14T11:48:40.000Z aprop: 42 }'
 );
 
 // test the internal isDate implementation
@@ -140,6 +255,16 @@ for (const o of vals) {
 }
 
 assert.strictEqual(util.inspect(valsOutput), '[ [ 1, 2 ] ]');
+
+// test for other constructors in different context
+var obj = require('vm').runInNewContext('(function(){return {}})()', {});
+assert.strictEqual(util.inspect(obj), '{}');
+obj = require('vm').runInNewContext('var m=new Map();m.set(1,2);m', {});
+assert.strictEqual(util.inspect(obj), 'Map { 1 => 2 }');
+obj = require('vm').runInNewContext('var s=new Set();s.add(1);s.add(2);s', {});
+assert.strictEqual(util.inspect(obj), 'Set { 1, 2 }');
+obj = require('vm').runInNewContext('fn=function(){};new Promise(fn,fn)', {});
+assert.strictEqual(util.inspect(obj), 'Promise { <pending> }');
 
 // test for property descriptors
 var getter = Object.create(null, {
@@ -185,6 +310,12 @@ assert.equal(util.inspect(Object.create(Date.prototype)), 'Date {}');
 assert.doesNotThrow(function() {
   var d = new Date();
   d.toUTCString = null;
+  util.inspect(d);
+});
+
+assert.doesNotThrow(function() {
+  var d = new Date();
+  d.toISOString = null;
   util.inspect(d);
 });
 

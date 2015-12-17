@@ -124,6 +124,13 @@ struct ClearErrorOnReturn {
   ~ClearErrorOnReturn() { ERR_clear_error(); }
 };
 
+// Pop errors from OpenSSL's error stack that were added
+// between when this was constructed and destructed.
+struct MarkPopErrorOnReturn {
+  MarkPopErrorOnReturn() { ERR_set_mark(); }
+  ~MarkPopErrorOnReturn() { ERR_pop_to_mark(); }
+};
+
 static uv_mutex_t* locks;
 
 const char* const root_certs[] = {
@@ -137,6 +144,8 @@ template class SSLWrap<TLSWrap>;
 template void SSLWrap<TLSWrap>::AddMethods(Environment* env,
                                            Local<FunctionTemplate> t);
 template void SSLWrap<TLSWrap>::InitNPN(SecureContext* sc);
+template void SSLWrap<TLSWrap>::SetSNIContext(SecureContext* sc);
+template int SSLWrap<TLSWrap>::SetCACerts(SecureContext* sc);
 template SSL_SESSION* SSLWrap<TLSWrap>::GetSessionCallback(
     SSL* s,
     unsigned char* key,
@@ -444,26 +453,6 @@ static BIO* LoadBIO(Environment* env, Local<Value> v) {
 }
 
 
-// Takes a string or buffer and loads it into an X509
-// Caller responsible for X509_free-ing the returned object.
-static X509* LoadX509(Environment* env, Local<Value> v) {
-  HandleScope scope(env->isolate());
-
-  BIO *bio = LoadBIO(env, v);
-  if (!bio)
-    return nullptr;
-
-  X509 * x509 = PEM_read_bio_X509(bio, nullptr, CryptoPemCallback, nullptr);
-  if (!x509) {
-    BIO_free_all(bio);
-    return nullptr;
-  }
-
-  BIO_free_all(bio);
-  return x509;
-}
-
-
 void SecureContext::SetKey(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
 
@@ -659,16 +648,19 @@ void SecureContext::AddCACert(const FunctionCallbackInfo<Value>& args) {
     newCAStore = true;
   }
 
-  X509* x509 = LoadX509(env, args[0]);
-  if (!x509)
-    return;
+  unsigned cert_count = 0;
+  if (BIO* bio = LoadBIO(env, args[0])) {
+    while (X509* x509 =  // NOLINT(whitespace/if-one-line)
+        PEM_read_bio_X509(bio, nullptr, CryptoPemCallback, nullptr)) {
+      X509_STORE_add_cert(sc->ca_store_, x509);
+      SSL_CTX_add_client_CA(sc->ctx_, x509);
+      X509_free(x509);
+      cert_count += 1;
+    }
+    BIO_free_all(bio);
+  }
 
-  X509_STORE_add_cert(sc->ca_store_, x509);
-  SSL_CTX_add_client_CA(sc->ctx_, x509);
-
-  X509_free(x509);
-
-  if (newCAStore) {
+  if (cert_count > 0 && newCAStore) {
     SSL_CTX_set_cert_store(sc->ctx_, sc->ca_store_);
   }
 }
@@ -2264,6 +2256,8 @@ void SSLWrap<Base>::CertCbDone(const FunctionCallbackInfo<Value>& args) {
       rv = SSL_use_PrivateKey(w->ssl_, pkey);
     if (rv && chain != nullptr)
       rv = SSL_set1_chain(w->ssl_, chain);
+    if (rv)
+      rv = w->SetCACerts(sc);
     if (!rv) {
       unsigned long err = ERR_get_error();
       if (!err)
@@ -2311,6 +2305,30 @@ void SSLWrap<Base>::DestroySSL() {
   SSL_free(ssl_);
   env_->isolate()->AdjustAmountOfExternalAllocatedMemory(-kExternalSize);
   ssl_ = nullptr;
+}
+
+
+template <class Base>
+void SSLWrap<Base>::SetSNIContext(SecureContext* sc) {
+  InitNPN(sc);
+  CHECK_EQ(SSL_set_SSL_CTX(ssl_, sc->ctx_), sc->ctx_);
+
+  SetCACerts(sc);
+}
+
+
+template <class Base>
+int SSLWrap<Base>::SetCACerts(SecureContext* sc) {
+  int err = SSL_set1_verify_cert_store(ssl_, SSL_CTX_get_cert_store(sc->ctx_));
+  if (err != 1)
+    return err;
+
+  STACK_OF(X509_NAME)* list = SSL_dup_CA_list(
+      SSL_CTX_get_client_CA_list(sc->ctx_));
+
+  // NOTE: `SSL_set_client_CA_list` takes the ownership of `list`
+  SSL_set_client_CA_list(ssl_, list);
+  return 1;
 }
 
 
@@ -2627,8 +2645,7 @@ int Connection::SelectSNIContextCallback_(SSL *s, int *ad, void* arg) {
       if (secure_context_constructor_template->HasInstance(ret)) {
         conn->sni_context_.Reset(env->isolate(), ret);
         SecureContext* sc = Unwrap<SecureContext>(ret.As<Object>());
-        InitNPN(sc);
-        SSL_set_SSL_CTX(s, sc->ctx_);
+        conn->SetSNIContext(sc);
       } else {
         return SSL_TLSEXT_ERR_NOACK;
       }
@@ -3027,6 +3044,11 @@ void CipherBase::Init(const char* cipher_type,
                       int key_buf_len) {
   HandleScope scope(env()->isolate());
 
+#ifdef NODE_FIPS_MODE
+  return env()->ThrowError(
+    "crypto.createCipher() is not supported in FIPS mode.");
+#endif  // NODE_FIPS_MODE
+
   CHECK_EQ(cipher_, nullptr);
   cipher_ = EVP_get_cipherbyname(cipher_type);
   if (cipher_ == nullptr) {
@@ -3394,10 +3416,14 @@ void Hmac::HmacInit(const char* hash_type, const char* key, int key_len) {
     return env()->ThrowError("Unknown message digest");
   }
   HMAC_CTX_init(&ctx_);
+  int result = 0;
   if (key_len == 0) {
-    HMAC_Init(&ctx_, "", 0, md_);
+    result = HMAC_Init(&ctx_, "", 0, md_);
   } else {
-    HMAC_Init(&ctx_, key, key_len, md_);
+    result = HMAC_Init(&ctx_, key, key_len, md_);
+  }
+  if (!result) {
+    return ThrowCryptoError(env(), ERR_get_error());
   }
   initialised_ = true;
 }
@@ -3518,7 +3544,8 @@ void Hash::New(const FunctionCallbackInfo<Value>& args) {
 
   Hash* hash = new Hash(env, args.This());
   if (!hash->HashInit(*hash_type)) {
-    return env->ThrowError("Digest method not supported");
+    return ThrowCryptoError(env, ERR_get_error(),
+                            "Digest method not supported");
   }
 }
 
@@ -3530,6 +3557,9 @@ bool Hash::HashInit(const char* hash_type) {
     return false;
   EVP_MD_CTX_init(&mdctx_);
   EVP_DigestInit_ex(&mdctx_, md_, nullptr);
+  if (0 != ERR_peek_error()) {
+    return false;
+  }
   initialised_ = true;
   return true;
 }
@@ -3745,6 +3775,29 @@ SignBase::Error Sign::SignFinal(const char* key_pem,
   // cf. the test of `test_bad_rsa_privkey.pem` for an example.
   if (pkey == nullptr || 0 != ERR_peek_error())
     goto exit;
+
+#ifdef NODE_FIPS_MODE
+  /* Validate DSA2 parameters from FIPS 186-4 */
+  if (EVP_PKEY_DSA == pkey->type) {
+    size_t L = BN_num_bits(pkey->pkey.dsa->p);
+    size_t N = BN_num_bits(pkey->pkey.dsa->q);
+    bool result = false;
+
+    if (L == 1024 && N == 160)
+      result = true;
+    else if (L == 2048 && N == 224)
+      result = true;
+    else if (L == 2048 && N == 256)
+      result = true;
+    else if (L == 3072 && N == 256)
+      result = true;
+
+    if (!result) {
+      fatal = true;
+      goto exit;
+    }
+  }
+#endif  // NODE_FIPS_MODE
 
   if (EVP_SignFinal(&mdctx_, *sig, sig_len, pkey))
     fatal = false;
@@ -4211,7 +4264,8 @@ void DiffieHellman::Initialize(Environment* env, Local<Object> target) {
 
 bool DiffieHellman::Init(int primeLength, int g) {
   dh = DH_new();
-  DH_generate_parameters_ex(dh, primeLength, g, 0);
+  if (!DH_generate_parameters_ex(dh, primeLength, g, 0))
+    return false;
   bool result = VerifyContext();
   if (!result)
     return false;
@@ -4304,7 +4358,7 @@ void DiffieHellman::New(const FunctionCallbackInfo<Value>& args) {
   }
 
   if (!initialized) {
-    return env->ThrowError("Initialization failed");
+    return ThrowCryptoError(env, ERR_get_error(), "Initialization failed");
   }
 }
 
@@ -4315,11 +4369,11 @@ void DiffieHellman::GenerateKeys(const FunctionCallbackInfo<Value>& args) {
   DiffieHellman* diffieHellman = Unwrap<DiffieHellman>(args.Holder());
 
   if (!diffieHellman->initialised_) {
-    return env->ThrowError("Not initialized");
+    return ThrowCryptoError(env, ERR_get_error(), "Not initialized");
   }
 
   if (!DH_generate_key(diffieHellman->dh)) {
-    return env->ThrowError("Key generation failed");
+    return ThrowCryptoError(env, ERR_get_error(), "Key generation failed");
   }
 
   int dataSize = BN_num_bytes(diffieHellman->dh->pub_key);
@@ -4338,7 +4392,7 @@ void DiffieHellman::GetPrime(const FunctionCallbackInfo<Value>& args) {
   DiffieHellman* diffieHellman = Unwrap<DiffieHellman>(args.Holder());
 
   if (!diffieHellman->initialised_) {
-    return env->ThrowError("Not initialized");
+    return ThrowCryptoError(env, ERR_get_error(), "Not initialized");
   }
 
   int dataSize = BN_num_bytes(diffieHellman->dh->p);
@@ -4356,7 +4410,7 @@ void DiffieHellman::GetGenerator(const FunctionCallbackInfo<Value>& args) {
   DiffieHellman* diffieHellman = Unwrap<DiffieHellman>(args.Holder());
 
   if (!diffieHellman->initialised_) {
-    return env->ThrowError("Not initialized");
+    return ThrowCryptoError(env, ERR_get_error(), "Not initialized");
   }
 
   int dataSize = BN_num_bytes(diffieHellman->dh->g);
@@ -4374,7 +4428,7 @@ void DiffieHellman::GetPublicKey(const FunctionCallbackInfo<Value>& args) {
   DiffieHellman* diffieHellman = Unwrap<DiffieHellman>(args.Holder());
 
   if (!diffieHellman->initialised_) {
-    return env->ThrowError("Not initialized");
+    return ThrowCryptoError(env, ERR_get_error(), "Not initialized");
   }
 
   if (diffieHellman->dh->pub_key == nullptr) {
@@ -4397,7 +4451,7 @@ void DiffieHellman::GetPrivateKey(const FunctionCallbackInfo<Value>& args) {
   DiffieHellman* diffieHellman = Unwrap<DiffieHellman>(args.Holder());
 
   if (!diffieHellman->initialised_) {
-    return env->ThrowError("Not initialized");
+    return ThrowCryptoError(env, ERR_get_error(), "Not initialized");
   }
 
   if (diffieHellman->dh->priv_key == nullptr) {
@@ -4420,7 +4474,7 @@ void DiffieHellman::ComputeSecret(const FunctionCallbackInfo<Value>& args) {
   DiffieHellman* diffieHellman = Unwrap<DiffieHellman>(args.Holder());
 
   if (!diffieHellman->initialised_) {
-    return env->ThrowError("Not initialized");
+    return ThrowCryptoError(env, ERR_get_error(), "Not initialized");
   }
 
   ClearErrorOnReturn clear_error_on_return;
@@ -4453,7 +4507,7 @@ void DiffieHellman::ComputeSecret(const FunctionCallbackInfo<Value>& args) {
     delete[] data;
 
     if (!checked) {
-      return env->ThrowError("Invalid key");
+      return ThrowCryptoError(env, ERR_get_error(), "Invalid Key");
     } else if (checkResult) {
       if (checkResult & DH_CHECK_PUBKEY_TOO_SMALL) {
         return env->ThrowError("Supplied key is too small");
@@ -4490,7 +4544,7 @@ void DiffieHellman::SetPublicKey(const FunctionCallbackInfo<Value>& args) {
   Environment* env = diffieHellman->env();
 
   if (!diffieHellman->initialised_) {
-    return env->ThrowError("Not initialized");
+    return ThrowCryptoError(env, ERR_get_error(), "Not initialized");
   }
 
   if (args.Length() == 0) {
@@ -4509,7 +4563,7 @@ void DiffieHellman::SetPrivateKey(const FunctionCallbackInfo<Value>& args) {
   Environment* env = diffieHellman->env();
 
   if (!diffieHellman->initialised_) {
-    return env->ThrowError("Not initialized");
+    return ThrowCryptoError(env, ERR_get_error(), "Not initialized");
   }
 
   if (args.Length() == 0) {
@@ -4531,7 +4585,8 @@ void DiffieHellman::VerifyErrorGetter(Local<String> property,
   DiffieHellman* diffieHellman = Unwrap<DiffieHellman>(args.Holder());
 
   if (!diffieHellman->initialised_)
-    return diffieHellman->env()->ThrowError("Not initialized");
+    return ThrowCryptoError(diffieHellman->env(), ERR_get_error(),
+                            "Not initialized");
 
   args.GetReturnValue().Set(diffieHellman->verifyError_);
 }
@@ -4591,8 +4646,6 @@ void ECDH::GenerateKeys(const FunctionCallbackInfo<Value>& args) {
 
   if (!EC_KEY_generate_key(ecdh->key_))
     return env->ThrowError("Failed to generate EC_KEY");
-
-  ecdh->generated_ = true;
 }
 
 
@@ -4632,6 +4685,9 @@ void ECDH::ComputeSecret(const FunctionCallbackInfo<Value>& args) {
 
   ECDH* ecdh = Unwrap<ECDH>(args.Holder());
 
+  if (!ecdh->IsKeyPairValid())
+    return env->ThrowError("Invalid key pair");
+
   EC_POINT* pub = ecdh->BufferToPoint(Buffer::Data(args[0]),
                                       Buffer::Length(args[0]));
   if (pub == nullptr)
@@ -4662,9 +4718,6 @@ void ECDH::GetPublicKey(const FunctionCallbackInfo<Value>& args) {
   CHECK_EQ(args.Length(), 1);
 
   ECDH* ecdh = Unwrap<ECDH>(args.Holder());
-
-  if (!ecdh->generated_)
-    return env->ThrowError("You should generate ECDH keys first");
 
   const EC_POINT* pub = EC_KEY_get0_public_key(ecdh->key_);
   if (pub == nullptr)
@@ -4697,9 +4750,6 @@ void ECDH::GetPrivateKey(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
 
   ECDH* ecdh = Unwrap<ECDH>(args.Holder());
-
-  if (!ecdh->generated_)
-    return env->ThrowError("You should generate ECDH keys first");
 
   const BIGNUM* b = EC_KEY_get0_private_key(ecdh->key_);
   if (b == nullptr)
@@ -4734,12 +4784,42 @@ void ECDH::SetPrivateKey(const FunctionCallbackInfo<Value>& args) {
   if (priv == nullptr)
     return env->ThrowError("Failed to convert Buffer to BN");
 
+  if (!ecdh->IsKeyValidForCurve(priv)) {
+    BN_free(priv);
+    return env->ThrowError("Private key is not valid for specified curve.");
+  }
+
   int result = EC_KEY_set_private_key(ecdh->key_, priv);
   BN_free(priv);
 
   if (!result) {
     return env->ThrowError("Failed to convert BN to a private key");
   }
+
+  // To avoid inconsistency, clear the current public key in-case computing
+  // the new one fails for some reason.
+  EC_KEY_set_public_key(ecdh->key_, nullptr);
+
+  MarkPopErrorOnReturn mark_pop_error_on_return;
+  (void) &mark_pop_error_on_return;  // Silence compiler warning.
+
+  const BIGNUM* priv_key = EC_KEY_get0_private_key(ecdh->key_);
+  CHECK_NE(priv_key, nullptr);
+
+  EC_POINT* pub = EC_POINT_new(ecdh->group_);
+  CHECK_NE(pub, nullptr);
+
+  if (!EC_POINT_mul(ecdh->group_, pub, priv_key, nullptr, nullptr, nullptr)) {
+    EC_POINT_free(pub);
+    return env->ThrowError("Failed to generate ECDH public key");
+  }
+
+  if (!EC_KEY_set_public_key(ecdh->key_, pub)) {
+    EC_POINT_free(pub);
+    return env->ThrowError("Failed to set generated public key");
+  }
+
+  EC_POINT_free(pub);
 }
 
 
@@ -4753,12 +4833,36 @@ void ECDH::SetPublicKey(const FunctionCallbackInfo<Value>& args) {
   EC_POINT* pub = ecdh->BufferToPoint(Buffer::Data(args[0].As<Object>()),
                                       Buffer::Length(args[0].As<Object>()));
   if (pub == nullptr)
-    return;
+    return env->ThrowError("Failed to convert Buffer to EC_POINT");
 
   int r = EC_KEY_set_public_key(ecdh->key_, pub);
   EC_POINT_free(pub);
   if (!r)
-    return env->ThrowError("Failed to convert BN to a private key");
+    return env->ThrowError("Failed to set EC_POINT as the public key");
+}
+
+
+bool ECDH::IsKeyValidForCurve(const BIGNUM* private_key) {
+  ASSERT_NE(group_, nullptr);
+  CHECK_NE(private_key, nullptr);
+  // Private keys must be in the range [1, n-1].
+  // Ref: Section 3.2.1 - http://www.secg.org/sec1-v2.pdf
+  if (BN_cmp(private_key, BN_value_one()) < 0) {
+    return false;
+  }
+  BIGNUM* order = BN_new();
+  CHECK_NE(order, nullptr);
+  bool result = EC_GROUP_get_order(group_, order, nullptr) &&
+                BN_cmp(private_key, order) < 0;
+  BN_free(order);
+  return result;
+}
+
+
+bool ECDH::IsKeyPairValid() {
+  MarkPopErrorOnReturn mark_pop_error_on_return;
+  (void) &mark_pop_error_on_return;  // Silence compiler warning.
+  return 1 == EC_KEY_check_key(key_);
 }
 
 

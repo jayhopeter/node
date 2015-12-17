@@ -10,6 +10,39 @@ sent to stdout or stderr.
 For ease of use, `console` is defined as a global object and can be used
 directly without `require`.
 
+## Class: Console
+
+<!--type=class-->
+
+Use `require('console').Console` or `console.Console` to access this class.
+
+    const Console = require('console').Console;
+    const Console = console.Console;
+
+You can use the `Console` class to create a simple logger like `console` but
+with different output streams.
+
+### new Console(stdout[, stderr])
+
+Create a new `Console` by passing one or two writable stream instances.
+`stdout` is a writable stream to print log or info output. `stderr`
+is used for warning or error output. If `stderr` isn't passed, the warning
+and error output will be sent to the `stdout`.
+
+    const output = fs.createWriteStream('./stdout.log');
+    const errorOutput = fs.createWriteStream('./stderr.log');
+    // custom simple logger
+    const logger = new Console(output, errorOutput);
+    // use it like console
+    var count = 5;
+    logger.log('count: %d', count);
+    // in stdout.log: count 5
+
+The global `console` is a special `Console` whose output is sent to
+`process.stdout` and `process.stderr`:
+
+    new Console(process.stdout, process.stderr);
+
 ## console
 
 * {Object}
@@ -28,65 +61,64 @@ is blocking:
 
     $ node script.js 2> error.log | tee info.log
 
-In daily use, the blocking/non-blocking dichotomy is not something you
-should worry about unless you log huge amounts of data.
+Typically, the blocking/non-blocking dichotomy is not something you should
+worry about unless you log huge amounts of data.
 
+### console.assert(value[, message][, ...])
 
-### console.log([data][, ...])
-
-Prints to stdout with newline. This function can take multiple arguments in a
-`printf()`-like way. Example:
-
-    var count = 5;
-    console.log('count: %d', count);
-    // prints 'count: 5'
-
-If formatting elements are not found in the first string then `util.inspect`
-is used on each argument.  See [util.format()][] for more information.
-
-### console.info([data][, ...])
-
-Same as `console.log`.
-
-### console.error([data][, ...])
-
-Same as `console.log` but prints to stderr.
-
-### console.warn([data][, ...])
-
-Same as `console.error`.
+Similar to [`assert.ok()`][], but the error message is formatted as
+`util.format(message...)`.
 
 ### console.dir(obj[, options])
 
-Uses `util.inspect` on `obj` and prints resulting string to stdout. This function
-bypasses any custom `inspect()` function on `obj`. An optional *options* object
-may be passed that alters certain aspects of the formatted string:
+Uses [`util.inspect()`][] on `obj` and prints the resulting string to stdout.
+This function bypasses any custom `inspect()` function on `obj`. An optional
+`options` object may be passed that alters certain aspects of the formatted
+string:
 
 - `showHidden` - if `true` then the object's non-enumerable and symbol
 properties will be shown too. Defaults to `false`.
 
 - `depth` - tells `inspect` how many times to recurse while formatting the
 object. This is useful for inspecting large complicated objects. Defaults to
-`2`. To make it recurse indefinitely pass `null`.
+`2`. To make it recurse indefinitely, pass `null`.
 
 - `colors` - if `true`, then the output will be styled with ANSI color codes.
-Defaults to `false`. Colors are customizable, see below.
+Defaults to `false`. Colors are customizable; see
+[customizing `util.inspect()` colors][].
 
-### console.time(timerName)
+### console.error([data][, ...])
+
+Same as [`console.log()`][] but prints to stderr.
+
+### console.info([data][, ...])
+
+Same as [`console.log()`][].
+
+### console.log([data][, ...])
+
+Prints to stdout with newline. This function can take multiple arguments in a
+`printf()`-like way:
+
+    var count = 5;
+    console.log('count: %d', count);
+    // prints 'count: 5'
+
+If formatting elements are not found in the first string then
+[`util.inspect()`][] is used on each argument.  See [`util.format()`][] for more
+information.
+
+### console.time(label)
 
 Starts a timer that can be used to compute the duration of an operation. Timers
 are identified by a unique name. Use the same name when you call
-[`console.timeEnd()`](#console_console_timeend_timername) to stop the timer and
-output the elapsed time in milliseconds. Timer durations are accurate to the
-sub-millisecond.
+[`console.timeEnd()`][] to stop the timer and output the elapsed time in
+milliseconds. Timer durations are accurate to the sub-millisecond.
 
-### console.timeEnd(timerName)
+### console.timeEnd(label)
 
-Stops a timer that was previously started by calling
-[`console.time()`](#console_console_time_timername) and prints the result to the
-console.
-
-Example:
+Stops a timer that was previously started by calling [`console.time()`][] and
+prints the result to the console:
 
     console.time('100-elements');
     for (var i = 0; i < 100; i++) {
@@ -100,43 +132,15 @@ Example:
 Print to stderr `'Trace :'`, followed by the formatted message and stack trace
 to the current position.
 
-### console.assert(value[, message][, ...])
+### console.warn([data][, ...])
 
-Similar to [assert.ok()][], but the error message is formatted as
-`util.format(message...)`.
+Same as [`console.error()`][].
 
-## Class: Console
-
-<!--type=class-->
-
-Use `require('console').Console` or `console.Console` to access this class.
-
-    var Console = require('console').Console;
-    var Console = console.Console;
-
-You can use `Console` class to custom simple logger like `console`, but with
-different output streams.
-
-### new Console(stdout[, stderr])
-
-Create a new `Console` by passing one or two writable stream instances.
-`stdout` is a writable stream to print log or info output. `stderr`
-is used for warning or error output. If `stderr` isn't passed, the warning
-and error output will be sent to the `stdout`.
-
-    var output = fs.createWriteStream('./stdout.log');
-    var errorOutput = fs.createWriteStream('./stderr.log');
-    // custom simple logger
-    var logger = new Console(output, errorOutput);
-    // use it like console
-    var count = 5;
-    logger.log('count: %d', count);
-    // in stdout.log: count 5
-
-The global `console` is a special `Console` whose output is sent to
-`process.stdout` and `process.stderr`:
-
-    new Console(process.stdout, process.stderr);
-
-[assert.ok()]: assert.html#assert_assert_value_message_assert_ok_value_message
-[util.format()]: util.html#util_util_format_format
+[`assert.ok()`]: assert.html#assert_assert_value_message_assert_ok_value_message
+[`console.error()`]: #console_console_error_data
+[`console.log()`]: #console_console_log_data
+[`console.time()`]: #console_console_time_label
+[`console.timeEnd()`]: #console_console_timeend_label
+[`util.format()`]: util.html#util_util_format_format
+[`util.inspect()`]: util.html#util_util_inspect_object_options
+[customizing `util.inspect()` colors]: util.html#util_customizing_util_inspect_colors

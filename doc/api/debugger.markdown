@@ -5,9 +5,8 @@
 <!-- type=misc -->
 
 V8 comes with an extensive debugger which is accessible out-of-process via a
-simple [TCP protocol](http://code.google.com/p/v8/wiki/DebuggerProtocol).
-Node.js has a built-in client for this debugger. To use this, start Node.js with
-the `debug` argument; a prompt will appear:
+simple [TCP protocol][]. Node.js has a built-in client for this debugger. To
+use this, start Node.js with the `debug` argument; a prompt will appear:
 
     % node debug myscript.js
     < debugger listening on port 5858
@@ -28,9 +27,9 @@ For example, suppose `myscript.js` looked like this:
     x = 5;
     setTimeout(function () {
       debugger;
-      console.log("world");
+      console.log('world');
     }, 1000);
-    console.log("hello");
+    console.log('hello');
 
 Then once the debugger is run, it will break on line 4.
 
@@ -47,15 +46,15 @@ Then once the debugger is run, it will break on line 4.
       1 x = 5;
       2 setTimeout(function () {
       3   debugger;
-      4   console.log("world");
+      4   console.log('world');
       5 }, 1000);
     debug> next
     break in /home/indutny/Code/git/indutny/myscript.js:4
       2 setTimeout(function () {
       3   debugger;
-      4   console.log("world");
+      4   console.log('world');
       5 }, 1000);
-      6 console.log("hello");
+      6 console.log('hello');
     debug> repl
     Press Ctrl + C to leave debug repl
     > x
@@ -66,9 +65,9 @@ Then once the debugger is run, it will break on line 4.
     < world
     break in /home/indutny/Code/git/indutny/myscript.js:5
       3   debugger;
-      4   console.log("world");
+      4   console.log('world');
       5 }, 1000);
-      6 console.log("hello");
+      6 console.log('hello');
       7
     debug> quit
     %
@@ -144,6 +143,7 @@ after)
 * `watchers` - List all watchers and their values (automatically listed on each
 breakpoint)
 * `repl` - Open debugger's repl for evaluation in debugging script's context
+* `exec expr` - Execute an expression in debugging script's context
 
 ### Execution control
 
@@ -168,3 +168,5 @@ debugger. The syntax is:
 
 * `node debug -p <pid>` - Connects to the process via the `pid`
 * `node debug <URI>` - Connects to the process via the URI such as localhost:5858
+
+[TCP protocol]: https://github.com/v8/v8/wiki/Debugging-Protocol
