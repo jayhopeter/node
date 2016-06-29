@@ -1,30 +1,26 @@
 'use strict';
-var common = require('../common');
-var assert = require('assert');
-
-var fs = require('fs');
-var dgram = require('dgram');
-var callbacks = 0;
-var client, timer, buf;
+const common = require('../common');
+const dgram = require('dgram');
 
 if (process.platform === 'darwin') {
-  console.log('1..0 # Skipped: because of 17894467 Apple bug');
+  common.skip('because of 17894467 Apple bug');
   return;
 }
 
+const client = dgram.createSocket('udp4');
 
-client = dgram.createSocket('udp4');
+client.bind(0, function() {
+  const port = this.address().port;
 
-client.bind(common.PORT);
+  client.on('message', common.mustCall(function onMessage(buffer, bytes) {
+    clearTimeout(timer);
+    client.close();
+  }));
 
-client.on('message', function(buffer, bytes) {
-  clearTimeout(timer);
-  client.close();
+  const buf = Buffer.alloc(0);
+  client.send(buf, 0, 0, port, '127.0.0.1', function(err, len) { });
+
+  const timer = setTimeout(function() {
+    throw new Error('Timeout');
+  }, common.platformTimeout(200));
 });
-
-buf = new Buffer(0);
-client.send(buf, 0, 0, common.PORT, '127.0.0.1', function(err, len) { });
-
-timer = setTimeout(function() {
-  throw new Error('Timeout');
-}, 200);

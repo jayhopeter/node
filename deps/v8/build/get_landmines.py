@@ -24,6 +24,9 @@ def main():
   print 'Moar clobbering...'
   print 'Remove build/android.gypi'
   print 'Cleanup after windows ninja switch attempt.'
+  print 'Switching to pinned msvs toolchain.'
+  print 'Clobbering to hopefully resolve problem with mksnapshot'
+  print 'Clobber after ICU roll.'
   return 0
 
 

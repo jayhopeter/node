@@ -25,9 +25,6 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// TODO(mythria): Remove this define after this flag is turned on globally
-#define V8_IMMINENT_DEPRECATION_WARNINGS
-
 #include "src/v8.h"
 #include "test/cctest/cctest.h"
 
@@ -406,7 +403,7 @@ TEST(TerminateFromOtherThreadWhileMicrotaskRunning) {
   thread.Start();
 
   v8::Isolate* isolate = CcTest::isolate();
-  isolate->SetAutorunMicrotasks(false);
+  isolate->SetMicrotasksPolicy(v8::MicrotasksPolicy::kExplicit);
   v8::HandleScope scope(isolate);
   v8::Local<v8::ObjectTemplate> global =
       CreateGlobalTemplate(CcTest::isolate(), Signal, DoLoop);
@@ -507,7 +504,7 @@ void InnerTryCallTerminate(const v8::FunctionCallbackInfo<v8::Value>& args) {
       global->Get(CcTest::isolate()->GetCurrentContext(), v8_str("loop"))
           .ToLocalChecked());
   i::MaybeHandle<i::Object> result =
-      i::Execution::TryCall(v8::Utils::OpenHandle((*loop)),
+      i::Execution::TryCall(CcTest::i_isolate(), v8::Utils::OpenHandle((*loop)),
                             v8::Utils::OpenHandle((*global)), 0, NULL, NULL);
   CHECK(result.is_null());
   // TryCall ignores terminate execution, but rerequests the interrupt.

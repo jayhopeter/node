@@ -5,11 +5,11 @@ if (module.parent) {
   process.exit(42);
 }
 
-var common = require('../common'),
-    assert = require('assert'),
-    child = require('child_process'),
-    path = require('path'),
-    nodejs = '"' + process.execPath + '"';
+const common = require('../common');
+const assert = require('assert');
+const child = require('child_process');
+const path = require('path');
+const nodejs = '"' + process.execPath + '"';
 
 
 // replace \ by / because windows uses backslashes in paths, but they're still
@@ -40,11 +40,11 @@ child.exec(nodejs + ' --eval "console.error(42)"',
         assert.equal(stderr, '');
       });
 
-  child.exec(cmd + "'[]'",
+  child.exec(cmd + "'[]'", common.mustCall(
       function(err, stdout, stderr) {
         assert.equal(stdout, '[]\n');
         assert.equal(stderr, '');
-      });
+      }));
 });
 
 // assert that module loading works
@@ -53,11 +53,24 @@ child.exec(nodejs + ' --eval "require(\'' + filename + '\')"',
       assert.equal(status.code, 42);
     });
 
+// Check that builtin modules are pre-defined.
+child.exec(nodejs + ' --print "os.platform()"',
+    function(status, stdout, stderr) {
+      assert.strictEqual(stderr, '');
+      assert.strictEqual(stdout.trim(), require('os').platform());
+    });
+
 // module path resolve bug, regression test
 child.exec(nodejs + ' --eval "require(\'./test/parallel/test-cli-eval.js\')"',
     function(status, stdout, stderr) {
       assert.equal(status.code, 42);
     });
+
+// Missing argument should not crash
+child.exec(nodejs + ' -e', common.mustCall(function(status, stdout, stderr) {
+  assert.notStrictEqual(status, null);
+  assert.strictEqual(status.code, 9);
+}));
 
 // empty program should do nothing
 child.exec(nodejs + ' -e ""', function(status, stdout, stderr) {

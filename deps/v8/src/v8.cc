@@ -8,19 +8,17 @@
 #include "src/base/once.h"
 #include "src/base/platform/platform.h"
 #include "src/bootstrapper.h"
+#include "src/crankshaft/lithium-allocator.h"
 #include "src/debug/debug.h"
 #include "src/deoptimizer.h"
 #include "src/elements.h"
 #include "src/frames.h"
-#include "src/hydrogen.h"
 #include "src/isolate.h"
-#include "src/lithium-allocator.h"
 #include "src/objects.h"
 #include "src/profiler/heap-profiler.h"
 #include "src/profiler/sampler.h"
 #include "src/runtime-profiler.h"
 #include "src/snapshot/natives.h"
-#include "src/snapshot/serialize.h"
 #include "src/snapshot/snapshot.h"
 
 
@@ -80,13 +78,6 @@ void V8::InitializeOncePerProcessImpl() {
 
   Sampler::SetUp();
   CpuFeatures::Probe(false);
-  init_memcopy_functions();
-  // The custom exp implementation needs 16KB of lookup data; initialize it
-  // on demand.
-  init_fast_sqrt_function();
-#ifdef _WIN64
-  init_modulo_function();
-#endif
   ElementsAccessor::InitializeOncePerProcess();
   LOperand::SetUpCaches();
   SetUpJSCallerSavedCodeData();

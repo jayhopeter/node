@@ -4,7 +4,7 @@ var assert = require('assert');
 var fs = require('fs');
 
 if (!common.hasCrypto) {
-  console.log('1..0 # Skipped: missing crypto');
+  common.skip('missing crypto');
   return;
 }
 var https = require('https');
@@ -13,7 +13,7 @@ var pfx = fs.readFileSync(common.fixturesDir + '/test_cert.pfx');
 
 var options = {
   host: '127.0.0.1',
-  port: common.PORT,
+  port: undefined,
   path: '/',
   pfx: pfx,
   passphrase: 'sample',
@@ -28,7 +28,8 @@ var server = https.createServer(options, function(req, res) {
   res.end('OK');
 });
 
-server.listen(options.port, options.host, function() {
+server.listen(0, options.host, function() {
+  options.port = this.address().port;
   var data = '';
 
   https.get(options, function(res) {

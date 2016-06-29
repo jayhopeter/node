@@ -6,7 +6,7 @@ var common = require('../common');
 var assert = require('assert');
 
 if (!common.hasCrypto) {
-  console.log('1..0 # Skipped: missing crypto');
+  common.skip('missing crypto');
   return;
 }
 var https = require('https');
@@ -33,10 +33,10 @@ server.on('upgrade', function(req, socket, upgrade) {
   seen_req = true;
 });
 
-server.listen(common.PORT, function() {
+server.listen(0, function() {
   var req = https.request({
     host: '127.0.0.1',
-    port: common.PORT,
+    port: this.address().port,
     agent: false,
     headers: {
       Connection: 'Upgrade',

@@ -15,18 +15,22 @@
 module.exports = install
 module.exports.Installer = Installer
 
-install.usage = '\nnpm install (with no args, in package dir)' +
-                '\nnpm install [<@scope>/]<pkg>' +
-                '\nnpm install [<@scope>/]<pkg>@<tag>' +
-                '\nnpm install [<@scope>/]<pkg>@<version>' +
-                '\nnpm install [<@scope>/]<pkg>@<version range>' +
-                '\nnpm install <folder>' +
-                '\nnpm install <tarball file>' +
-                '\nnpm install <tarball url>' +
-                '\nnpm install <git:// url>' +
-                '\nnpm install <github username>/<github project>' +
-                '\n\nalias: npm i' +
-                '\ncommon options: [--save|--save-dev|--save-optional] [--save-exact]'
+var usage = require('./utils/usage')
+
+install.usage = usage(
+  'install',
+  '\nnpm install (with no args, in package dir)' +
+  '\nnpm install [<@scope>/]<pkg>' +
+  '\nnpm install [<@scope>/]<pkg>@<tag>' +
+  '\nnpm install [<@scope>/]<pkg>@<version>' +
+  '\nnpm install [<@scope>/]<pkg>@<version range>' +
+  '\nnpm install <folder>' +
+  '\nnpm install <tarball file>' +
+  '\nnpm install <tarball url>' +
+  '\nnpm install <git:// url>' +
+  '\nnpm install <github username>/<github project>',
+  '[--save|--save-dev|--save-optional] [--save-exact]'
+)
 
 install.completion = function (opts, cb) {
   validate('OF', arguments)
@@ -109,6 +113,7 @@ var lock = locker.lock
 var unlock = locker.unlock
 var ls = require('./ls.js')
 var parseJSON = require('./utils/parse-json.js')
+var output = require('./utils/output.js')
 
 // install specific libraries
 var copyTree = require('./install/copy-tree.js')
@@ -119,7 +124,6 @@ var loadDevDeps = require('./install/deps.js').loadDevDeps
 var getAllMetadata = require('./install/deps.js').getAllMetadata
 var loadRequestedDeps = require('./install/deps.js').loadRequestedDeps
 var loadExtraneous = require('./install/deps.js').loadExtraneous
-var pruneTree = require('./install/prune-tree.js')
 var diffTrees = require('./install/diff-trees.js')
 var checkPermissions = require('./install/check-permissions.js')
 var decomposeActions = require('./install/decompose-actions.js')
@@ -132,8 +136,11 @@ var doSerialActions = require('./install/actions.js').doSerial
 var doReverseSerialActions = require('./install/actions.js').doReverseSerial
 var doParallelActions = require('./install/actions.js').doParallel
 var doOneAction = require('./install/actions.js').doOne
+var removeObsoleteDep = require('./install/deps.js').removeObsoleteDep
 var packageId = require('./utils/package-id.js')
 var moduleName = require('./utils/module-name.js')
+var errorMessage = require('./utils/error-message.js')
+var andIgnoreErrors = require('./install/and-ignore-errors.js')
 
 function unlockCB (lockPath, name, cb) {
   validate('SSF', arguments)
@@ -282,12 +289,19 @@ Installer.prototype.run = function (cb) {
         self.idealTree.warnings.forEach(function (warning) {
           if (warning.code === 'EPACKAGEJSON' && self.global) return
           if (warning.code === 'ENOTDIR') return
-          log.warn(warning.code, warning.message)
+          errorMessage(warning).summary.forEach(function (logline) {
+            log.warn.apply(log, logline)
+          })
         })
       }
       if (installEr && postInstallEr) {
-        log.warn('error', postInstallEr.message)
-        log.verbose('error', postInstallEr.stack)
+        var msg = errorMessage(postInstallEr)
+        msg.summary.forEach(function (logline) {
+          log.warn.apply(log, logline)
+        })
+        msg.detail.forEach(function (logline) {
+          log.verbose.apply(log, logline)
+        })
       }
       cb(installEr || postInstallEr, self.getInstalledModules(), self.idealTree)
     })
@@ -351,9 +365,8 @@ Installer.prototype.loadIdealTree = function (cb) {
     [this, this.loadAllDepsIntoIdealTree],
     [this, this.finishTracker, 'loadAllDepsIntoIdealTree'],
 
-    [this, function (next) { recalculateMetadata(this.idealTree, log, next) }],
-    [this, this.debugTree, 'idealTree:prePrune', 'idealTree'],
-    [this, function (next) { next(pruneTree(this.idealTree)) }]
+    // TODO: Remove this (should no longer be necessary, instead counter productive)
+    [this, function (next) { recalculateMetadata(this.idealTree, log, next) }]
   ], cb)
 }
 
@@ -407,21 +420,18 @@ Installer.prototype.computeLinked = function (cb) {
     var cmd = action[0]
     var pkg = action[1]
     if (cmd !== 'add' && cmd !== 'update') return next()
-    var isReqByTop = pkg.package._requiredBy.filter(function (name) { return name === '/' }).length
-    var isReqByUser = pkg.package._requiredBy.filter(function (name) { return name === '#USER' }).length
-    var isExtraneous = pkg.package._requiredBy.length === 0
+    var isReqByTop = pkg.requiredBy.filter(function (mod) { return mod.isTop }).length
+    var isReqByUser = pkg.userRequired
+    var isExtraneous = pkg.requiredBy.length === 0
     if (!isReqByTop && !isReqByUser && !isExtraneous) return next()
     isLinkable(pkg, function (install, link) {
       if (install) linkTodoList.push(['global-install', pkg])
       if (link) linkTodoList.push(['global-link', pkg])
-      if (install || link) {
-        pkg.parent.children = pkg.parent.children.filter(function (child) { return child !== pkg })
-      }
+      if (install || link) removeObsoleteDep(pkg)
       next()
     })
   }, function () {
     if (linkTodoList.length === 0) return cb()
-    pruneTree(self.idealTree)
     self.differences.length = 0
     Array.prototype.push.apply(self.differences, linkTodoList)
     diffTrees(self.currentTree, self.idealTree, self.differences, log.newGroup('d2'), cb)
@@ -462,12 +472,6 @@ Installer.prototype.executeActions = function (cb) {
     [doParallelActions, 'extract', staging, todo, cg.newGroup('extract', 10)],
     [doParallelActions, 'preinstall', staging, todo, trackLifecycle.newGroup('preinstall')],
     [doReverseSerialActions, 'remove', staging, todo, cg.newGroup('remove')],
-    // FIXME: We do this here to commit the removes prior to trying to move
-    // anything into place. Once we can rollback removes we should find
-    // a better solution for this.
-    // This is to protect against cruft in the node_modules folder (like dot files)
-    // that stop it from being removed.
-    [this, this.commit, staging, this.todo],
     [doSerialActions, 'move', staging, todo, cg.newGroup('move')],
     [doSerialActions, 'finalize', staging, todo, cg.newGroup('finalize')],
     [doSerialActions, 'build', staging, todo, trackLifecycle.newGroup('build')],
@@ -576,6 +580,9 @@ Installer.prototype.readLocalPackageData = function (cb) {
     readPackageTree(self.where, iferr(cb, function (currentTree) {
       self.currentTree = currentTree
       self.currentTree.warnings = []
+      if (currentTree.error && currentTree.error.code === 'EJSONPARSE') {
+        return cb(currentTree.error)
+      }
       if (!self.noPackageJsonOk && !currentTree.package) {
         log.error('install', "Couldn't read dependencies")
         var er = new Error("ENOENT, open '" + path.join(self.where, 'package.json') + "'")
@@ -624,8 +631,8 @@ Installer.prototype.normalizeTree = function (log, cb) {
   log.silly('install', 'normalizeTree')
   recalculateMetadata(this.currentTree, log, iferr(cb, function (tree) {
     tree.children.forEach(function (child) {
-      if (child.package._requiredBy.length === 0) {
-        child.package._requiredBy.push('#EXISTING')
+      if (child.requiredBy.length === 0) {
+        child.existing = true
       }
     })
     cb(null, tree)
@@ -646,17 +653,16 @@ Installer.prototype.printInstalled = function (cb) {
   validate('F', arguments)
   log.silly('install', 'printInstalled')
   var self = this
-  log.clearProgress()
   this.differences.forEach(function (action) {
     var mutation = action[0]
     var child = action[1]
     var name = packageId(child)
     var where = path.relative(self.where, child.path)
     if (mutation === 'remove') {
-      console.log('- ' + name + ' ' + where)
+      output('- ' + name + ' ' + where)
     } else if (mutation === 'move') {
       var oldWhere = path.relative(self.where, child.fromPath)
-      console.log(name + ' ' + oldWhere + ' -> ' + where)
+      output(name + ' ' + oldWhere + ' -> ' + where)
     }
   })
   var addedOrMoved = this.differences.filter(function (action) {
@@ -665,16 +671,23 @@ Installer.prototype.printInstalled = function (cb) {
     return !child.failed && (mutation === 'add' || mutation === 'update')
   }).map(function (action) {
     var child = action[1]
-    return packageId(child)
+    return child.path
   })
-  log.showProgress()
   if (!addedOrMoved.length) return cb()
+  // TODO: remove the recalculateMetadata, should not be needed
   recalculateMetadata(this.idealTree, log, iferr(cb, function (tree) {
-    log.clearProgress()
-    ls.fromTree(self.where, tree, addedOrMoved, false, function () {
-      log.showProgress()
-      cb()
-    })
+    // These options control both how installs happen AND how `ls` shows output.
+    // Something like `npm install --production` only installs production deps.
+    // By contrast `npm install --production foo` installs `foo` and the
+    // `production` option is ignored. But when it comes time for `ls` to show
+    // its output, it excludes the thing we just installed because that flag.
+    // The summary output we get should be unfiltered, showing everything
+    // installed, so we clear these options before calling `ls`.
+    npm.config.set('production', false)
+    npm.config.set('dev', false)
+    npm.config.set('only', '')
+    npm.config.set('also', '')
+    ls.fromTree(self.where, tree, addedOrMoved, false, andIgnoreErrors(cb))
   }))
 }
 

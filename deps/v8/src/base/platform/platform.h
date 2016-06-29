@@ -142,6 +142,7 @@ class OS {
   static FILE* FOpen(const char* path, const char* mode);
   static bool Remove(const char* path);
 
+  static char DirectorySeparator();
   static bool isDirectorySeparator(const char ch);
 
   // Opens a temporary file, the file is auto removed on close.
@@ -194,7 +195,7 @@ class OS {
   static void Sleep(TimeDelta interval);
 
   // Abort the current process.
-  static void Abort();
+  V8_NORETURN static void Abort();
 
   // Debug break.
   static void DebugBreak();
@@ -289,6 +290,10 @@ class VirtualMemory {
   // is aligned per alignment. This may not be at the position returned
   // by address().
   VirtualMemory(size_t size, size_t alignment);
+
+  // Construct a virtual memory by assigning it some already mapped address
+  // and size.
+  VirtualMemory(void* address, size_t size) : address_(address), size_(size) {}
 
   // Releases the reserved memory, if any, controlled by this VirtualMemory
   // object.
@@ -479,6 +484,7 @@ class Thread {
   DISALLOW_COPY_AND_ASSIGN(Thread);
 };
 
-} }  // namespace v8::base
+}  // namespace base
+}  // namespace v8
 
 #endif  // V8_BASE_PLATFORM_PLATFORM_H_

@@ -17,7 +17,7 @@ For general help using Node.js, please file an issue at the
 
 Discussion of non-technical topics including subjects like intellectual
 property, trademark and high level project questions should move to the
-[node-forward discussions repository](https://github.com/node-forward/discussions)
+[Technical Steering Committee (TSC)](https://github.com/nodejs/TSC/issues)
 instead.
 
 ## Code Contributions
@@ -49,7 +49,7 @@ and built upon.
 #### Respect the stability index
 
 The rules for the master branch are less strict; consult the
-[stability index](./doc/api/documentation.markdown#stability-index) for details.
+[stability index](./doc/api/documentation.md#stability-index) for details.
 
 In a nutshell, modules are at varying levels of API stability. Bug fixes are
 always welcome but API or behavioral changes to modules at stability level 3
@@ -119,6 +119,12 @@ run `git shortlog` or `git log --oneline`.
 Check the output of `git log --oneline files_that_you_changed` to find out
 what subsystem (or subsystems) your changes touch.
 
+If your patch fixes an open issue, you can add a reference to it at the end
+of the log. Use the `Fixes:` prefix and the full issue URL. For example:
+
+```
+Fixes: https://github.com/nodejs/node/issues/1337
+```
 
 ### Step 4: Rebase
 
@@ -133,8 +139,9 @@ $ git rebase upstream/master
 ### Step 5: Test
 
 Bug fixes and features **should come with tests**. Add your tests in the
-test/parallel/ directory. Look at other tests to see how they should be
-structured (license boilerplate, common includes, etc.).
+`test/parallel/` directory. For guidance on how to write a test for the Node.js
+project, see this [guide](./doc/guides/writing_tests.md). Looking at other tests
+to see how they should be structured can also help.
 
 ```text
 $ ./configure && make -j8 test
@@ -173,19 +180,29 @@ to address, apply your changes in a separate commit and push that to your
 feature branch. Post a comment in the pull request afterwards; GitHub does
 not send out notifications when you add commits.
 
-
-## Developer's Certificate of Origin 1.0
+<a id="developers-certificate-of-origin"></a>
+## Developer's Certificate of Origin 1.1
 
 By making a contribution to this project, I certify that:
 
 * (a) The contribution was created in whole or in part by me and I
-  have the right to submit it under the open source license indicated
-  in the file; or
+  have the right to submit it under the open source license
+  indicated in the file; or
+
 * (b) The contribution is based upon previous work that, to the best
-  of my knowledge, is covered under an appropriate open source license
-  and I have the right under that license to submit that work with
-  modifications, whether created in whole or in part by me, under the
-  same open source license (unless I am permitted to submit under a
-  different license), as indicated in the file; or
+  of my knowledge, is covered under an appropriate open source
+  license and I have the right under that license to submit that
+  work with modifications, whether created in whole or in part
+  by me, under the same open source license (unless I am
+  permitted to submit under a different license), as indicated
+  in the file; or
+
 * (c) The contribution was provided directly to me by some other
-  person who certified (a), (b) or (c) and I have not modified it.
+  person who certified (a), (b) or (c) and I have not modified
+  it.
+
+* (d) I understand and agree that this project and the contribution
+  are public and that a record of the contribution (including all
+  personal information I submit with it, including my sign-off) is
+  maintained indefinitely and may be redistributed consistent with
+  this project or the open source license(s) involved.

@@ -14,8 +14,8 @@ Type* SmiType(Zone* zone) {
 }
 
 
-Type* UntaggedSigned32(Zone* zone) {
-  return Type::Intersect(Type::Signed32(), Type::UntaggedSigned32(), zone);
+Type* UntaggedIntegral32(Zone* zone) {
+  return Type::Intersect(Type::Signed32(), Type::UntaggedIntegral32(), zone);
 }
 
 
@@ -29,14 +29,14 @@ Type* AnyTagged(Zone* zone) {
 Type* ExternalPointer(Zone* zone) {
   return Type::Intersect(Type::Internal(), Type::UntaggedPointer(), zone);
 }
-}
+}  // namespace
 
-
-Type::FunctionType* CallInterfaceDescriptor::BuildDefaultFunctionType(
+FunctionType* CallInterfaceDescriptor::BuildDefaultFunctionType(
     Isolate* isolate, int parameter_count) {
   Zone* zone = isolate->interface_descriptor_zone();
-  Type::FunctionType* function = Type::FunctionType::New(
-      AnyTagged(zone), Type::Undefined(), parameter_count, zone);
+  FunctionType* function =
+      Type::Function(AnyTagged(zone), Type::Undefined(), parameter_count, zone)
+          ->AsFunction();
   while (parameter_count-- != 0) {
     function->InitParameter(parameter_count, AnyTagged(zone));
   }
@@ -75,16 +75,28 @@ const char* CallInterfaceDescriptor::DebugName(Isolate* isolate) const {
 }
 
 
-Type::FunctionType* LoadDescriptor::BuildCallInterfaceDescriptorFunctionType(
+void AllocateMutableHeapNumberDescriptor::InitializePlatformSpecific(
+    CallInterfaceDescriptorData* data) {
+  data->InitializePlatformSpecific(0, nullptr, nullptr);
+}
+
+
+void VoidDescriptor::InitializePlatformSpecific(
+    CallInterfaceDescriptorData* data) {
+  data->InitializePlatformSpecific(0, nullptr);
+}
+
+FunctionType* LoadDescriptor::BuildCallInterfaceDescriptorFunctionType(
     Isolate* isolate, int paramater_count) {
   Zone* zone = isolate->interface_descriptor_zone();
-  Type::FunctionType* function =
-      Type::FunctionType::New(AnyTagged(zone), Type::Undefined(), 3, zone);
+  FunctionType* function =
+      Type::Function(AnyTagged(zone), Type::Undefined(), 3, zone)->AsFunction();
   function->InitParameter(0, AnyTagged(zone));
   function->InitParameter(1, AnyTagged(zone));
   function->InitParameter(2, SmiType(zone));
   return function;
 }
+
 
 void LoadDescriptor::InitializePlatformSpecific(
     CallInterfaceDescriptorData* data) {
@@ -109,12 +121,26 @@ void StoreTransitionDescriptor::InitializePlatformSpecific(
 }
 
 
-Type::FunctionType*
+void VectorStoreTransitionDescriptor::InitializePlatformSpecific(
+    CallInterfaceDescriptorData* data) {
+  if (SlotRegister().is(no_reg)) {
+    Register registers[] = {ReceiverRegister(), NameRegister(), ValueRegister(),
+                            MapRegister(), VectorRegister()};
+    data->InitializePlatformSpecific(arraysize(registers), registers);
+  } else {
+    Register registers[] = {ReceiverRegister(), NameRegister(),
+                            ValueRegister(),    MapRegister(),
+                            SlotRegister(),     VectorRegister()};
+    data->InitializePlatformSpecific(arraysize(registers), registers);
+  }
+}
+
+FunctionType*
 StoreTransitionDescriptor::BuildCallInterfaceDescriptorFunctionType(
     Isolate* isolate, int paramater_count) {
   Zone* zone = isolate->interface_descriptor_zone();
-  Type::FunctionType* function =
-      Type::FunctionType::New(AnyTagged(zone), Type::Undefined(), 4, zone);
+  FunctionType* function =
+      Type::Function(AnyTagged(zone), Type::Undefined(), 4, zone)->AsFunction();
   function->InitParameter(0, AnyTagged(zone));  // Receiver
   function->InitParameter(1, AnyTagged(zone));  // Name
   function->InitParameter(2, AnyTagged(zone));  // Value
@@ -122,14 +148,13 @@ StoreTransitionDescriptor::BuildCallInterfaceDescriptorFunctionType(
   return function;
 }
 
-
-Type::FunctionType*
+FunctionType*
 LoadGlobalViaContextDescriptor::BuildCallInterfaceDescriptorFunctionType(
     Isolate* isolate, int paramater_count) {
   Zone* zone = isolate->interface_descriptor_zone();
-  Type::FunctionType* function =
-      Type::FunctionType::New(AnyTagged(zone), Type::Undefined(), 1, zone);
-  function->InitParameter(0, UntaggedSigned32(zone));
+  FunctionType* function =
+      Type::Function(AnyTagged(zone), Type::Undefined(), 1, zone)->AsFunction();
+  function->InitParameter(0, UntaggedIntegral32(zone));
   return function;
 }
 
@@ -140,14 +165,13 @@ void LoadGlobalViaContextDescriptor::InitializePlatformSpecific(
   data->InitializePlatformSpecific(arraysize(registers), registers);
 }
 
-
-Type::FunctionType*
+FunctionType*
 StoreGlobalViaContextDescriptor::BuildCallInterfaceDescriptorFunctionType(
     Isolate* isolate, int paramater_count) {
   Zone* zone = isolate->interface_descriptor_zone();
-  Type::FunctionType* function =
-      Type::FunctionType::New(AnyTagged(zone), Type::Undefined(), 2, zone);
-  function->InitParameter(0, UntaggedSigned32(zone));
+  FunctionType* function =
+      Type::Function(AnyTagged(zone), Type::Undefined(), 2, zone)->AsFunction();
+  function->InitParameter(0, UntaggedIntegral32(zone));
   function->InitParameter(1, AnyTagged(zone));
   return function;
 }
@@ -173,17 +197,9 @@ void StringCompareDescriptor::InitializePlatformSpecific(
   data->InitializePlatformSpecific(arraysize(registers), registers);
 }
 
-
-void ToStringDescriptor::InitializePlatformSpecific(
+void TypeConversionDescriptor::InitializePlatformSpecific(
     CallInterfaceDescriptorData* data) {
-  Register registers[] = {ReceiverRegister()};
-  data->InitializePlatformSpecific(arraysize(registers), registers);
-}
-
-
-void ToObjectDescriptor::InitializePlatformSpecific(
-    CallInterfaceDescriptorData* data) {
-  Register registers[] = {ReceiverRegister()};
+  Register registers[] = {ArgumentRegister()};
   data->InitializePlatformSpecific(arraysize(registers), registers);
 }
 
@@ -201,13 +217,12 @@ void MathPowIntegerDescriptor::InitializePlatformSpecific(
   data->InitializePlatformSpecific(arraysize(registers), registers);
 }
 
-
-Type::FunctionType*
+FunctionType*
 LoadWithVectorDescriptor::BuildCallInterfaceDescriptorFunctionType(
     Isolate* isolate, int paramater_count) {
   Zone* zone = isolate->interface_descriptor_zone();
-  Type::FunctionType* function =
-      Type::FunctionType::New(AnyTagged(zone), Type::Undefined(), 4, zone);
+  FunctionType* function =
+      Type::Function(AnyTagged(zone), Type::Undefined(), 4, zone)->AsFunction();
   function->InitParameter(0, AnyTagged(zone));
   function->InitParameter(1, AnyTagged(zone));
   function->InitParameter(2, SmiType(zone));
@@ -223,29 +238,32 @@ void LoadWithVectorDescriptor::InitializePlatformSpecific(
   data->InitializePlatformSpecific(arraysize(registers), registers);
 }
 
-
-Type::FunctionType*
+FunctionType*
 VectorStoreTransitionDescriptor::BuildCallInterfaceDescriptorFunctionType(
     Isolate* isolate, int paramater_count) {
   Zone* zone = isolate->interface_descriptor_zone();
-  Type::FunctionType* function =
-      Type::FunctionType::New(AnyTagged(zone), Type::Undefined(), 6, zone);
-  function->InitParameter(0, AnyTagged(zone));  // receiver
-  function->InitParameter(1, AnyTagged(zone));  // name
-  function->InitParameter(2, AnyTagged(zone));  // value
-  function->InitParameter(3, SmiType(zone));    // slot
-  function->InitParameter(4, AnyTagged(zone));  // vector
-  function->InitParameter(5, AnyTagged(zone));  // map
+  bool has_slot = !VectorStoreTransitionDescriptor::SlotRegister().is(no_reg);
+  int arg_count = has_slot ? 6 : 5;
+  FunctionType* function =
+      Type::Function(AnyTagged(zone), Type::Undefined(), arg_count, zone)
+          ->AsFunction();
+  int index = 0;
+  function->InitParameter(index++, AnyTagged(zone));  // receiver
+  function->InitParameter(index++, AnyTagged(zone));  // name
+  function->InitParameter(index++, AnyTagged(zone));  // value
+  function->InitParameter(index++, AnyTagged(zone));  // map
+  if (has_slot) {
+    function->InitParameter(index++, SmiType(zone));  // slot
+  }
+  function->InitParameter(index++, AnyTagged(zone));  // vector
   return function;
 }
 
-
-Type::FunctionType*
-VectorStoreICDescriptor::BuildCallInterfaceDescriptorFunctionType(
+FunctionType* VectorStoreICDescriptor::BuildCallInterfaceDescriptorFunctionType(
     Isolate* isolate, int paramater_count) {
   Zone* zone = isolate->interface_descriptor_zone();
-  Type::FunctionType* function =
-      Type::FunctionType::New(AnyTagged(zone), Type::Undefined(), 5, zone);
+  FunctionType* function =
+      Type::Function(AnyTagged(zone), Type::Undefined(), 5, zone)->AsFunction();
   function->InitParameter(0, AnyTagged(zone));
   function->InitParameter(1, AnyTagged(zone));
   function->InitParameter(2, AnyTagged(zone));
@@ -262,13 +280,12 @@ void VectorStoreICDescriptor::InitializePlatformSpecific(
   data->InitializePlatformSpecific(arraysize(registers), registers);
 }
 
-
-Type::FunctionType*
+FunctionType*
 VectorStoreICTrampolineDescriptor::BuildCallInterfaceDescriptorFunctionType(
     Isolate* isolate, int paramater_count) {
   Zone* zone = isolate->interface_descriptor_zone();
-  Type::FunctionType* function =
-      Type::FunctionType::New(AnyTagged(zone), Type::Undefined(), 4, zone);
+  FunctionType* function =
+      Type::Function(AnyTagged(zone), Type::Undefined(), 4, zone)->AsFunction();
   function->InitParameter(0, AnyTagged(zone));
   function->InitParameter(1, AnyTagged(zone));
   function->InitParameter(2, AnyTagged(zone));
@@ -284,13 +301,11 @@ void VectorStoreICTrampolineDescriptor::InitializePlatformSpecific(
   data->InitializePlatformSpecific(arraysize(registers), registers);
 }
 
-
-Type::FunctionType*
-ApiGetterDescriptor::BuildCallInterfaceDescriptorFunctionType(
+FunctionType* ApiGetterDescriptor::BuildCallInterfaceDescriptorFunctionType(
     Isolate* isolate, int paramater_count) {
   Zone* zone = isolate->interface_descriptor_zone();
-  Type::FunctionType* function =
-      Type::FunctionType::New(AnyTagged(zone), Type::Undefined(), 1, zone);
+  FunctionType* function =
+      Type::Function(AnyTagged(zone), Type::Undefined(), 1, zone)->AsFunction();
   function->InitParameter(0, ExternalPointer(zone));
   return function;
 }
@@ -299,33 +314,6 @@ ApiGetterDescriptor::BuildCallInterfaceDescriptorFunctionType(
 void ApiGetterDescriptor::InitializePlatformSpecific(
     CallInterfaceDescriptorData* data) {
   Register registers[] = {function_address()};
-  data->InitializePlatformSpecific(arraysize(registers), registers);
-}
-
-
-void ArgumentsAccessReadDescriptor::InitializePlatformSpecific(
-    CallInterfaceDescriptorData* data) {
-  Register registers[] = {index(), parameter_count()};
-  data->InitializePlatformSpecific(arraysize(registers), registers);
-}
-
-
-Type::FunctionType*
-ArgumentsAccessNewDescriptor::BuildCallInterfaceDescriptorFunctionType(
-    Isolate* isolate, int paramater_count) {
-  Zone* zone = isolate->interface_descriptor_zone();
-  Type::FunctionType* function =
-      Type::FunctionType::New(AnyTagged(zone), Type::Undefined(), 3, zone);
-  function->InitParameter(0, AnyTagged(zone));
-  function->InitParameter(1, SmiType(zone));
-  function->InitParameter(2, ExternalPointer(zone));
-  return function;
-}
-
-
-void ArgumentsAccessNewDescriptor::InitializePlatformSpecific(
-    CallInterfaceDescriptorData* data) {
-  Register registers[] = {function(), parameter_count(), parameter_pointer()};
   data->InitializePlatformSpecific(arraysize(registers), registers);
 }
 
@@ -342,180 +330,212 @@ void GrowArrayElementsDescriptor::InitializePlatformSpecific(
   data->InitializePlatformSpecific(arraysize(registers), registers);
 }
 
+FunctionType* FastArrayPushDescriptor::BuildCallInterfaceDescriptorFunctionType(
+    Isolate* isolate, int paramater_count) {
+  Zone* zone = isolate->interface_descriptor_zone();
+  FunctionType* function =
+      Type::Function(AnyTagged(zone), AnyTagged(zone), 1, zone)->AsFunction();
+  function->InitParameter(0, UntaggedIntegral32(zone));  // actual #arguments
+  return function;
+}
 
-Type::FunctionType*
+FunctionType*
+FastCloneRegExpDescriptor::BuildCallInterfaceDescriptorFunctionType(
+    Isolate* isolate, int paramater_count) {
+  Zone* zone = isolate->interface_descriptor_zone();
+  FunctionType* function =
+      Type::Function(AnyTagged(zone), Type::Undefined(), 4, zone)->AsFunction();
+  function->InitParameter(0, AnyTagged(zone));  // closure
+  function->InitParameter(1, SmiType(zone));    // literal_index
+  function->InitParameter(2, AnyTagged(zone));  // pattern
+  function->InitParameter(3, AnyTagged(zone));  // flags
+  return function;
+}
+
+FunctionType*
 FastCloneShallowArrayDescriptor::BuildCallInterfaceDescriptorFunctionType(
     Isolate* isolate, int paramater_count) {
   Zone* zone = isolate->interface_descriptor_zone();
-  Type::FunctionType* function =
-      Type::FunctionType::New(AnyTagged(zone), Type::Undefined(), 3, zone);
+  FunctionType* function =
+      Type::Function(AnyTagged(zone), Type::Undefined(), 3, zone)->AsFunction();
   function->InitParameter(0, AnyTagged(zone));
   function->InitParameter(1, SmiType(zone));
   function->InitParameter(2, AnyTagged(zone));
   return function;
 }
 
-
-Type::FunctionType*
+FunctionType*
 CreateAllocationSiteDescriptor::BuildCallInterfaceDescriptorFunctionType(
     Isolate* isolate, int paramater_count) {
   Zone* zone = isolate->interface_descriptor_zone();
-  Type::FunctionType* function =
-      Type::FunctionType::New(AnyTagged(zone), Type::Undefined(), 2, zone);
+  FunctionType* function =
+      Type::Function(AnyTagged(zone), Type::Undefined(), 2, zone)->AsFunction();
   function->InitParameter(0, AnyTagged(zone));
   function->InitParameter(1, SmiType(zone));
   return function;
 }
 
-
-Type::FunctionType*
+FunctionType*
 CreateWeakCellDescriptor::BuildCallInterfaceDescriptorFunctionType(
     Isolate* isolate, int paramater_count) {
   Zone* zone = isolate->interface_descriptor_zone();
-  Type::FunctionType* function =
-      Type::FunctionType::New(AnyTagged(zone), Type::Undefined(), 3, zone);
+  FunctionType* function =
+      Type::Function(AnyTagged(zone), Type::Undefined(), 3, zone)->AsFunction();
   function->InitParameter(0, AnyTagged(zone));
   function->InitParameter(1, SmiType(zone));
   function->InitParameter(2, AnyTagged(zone));
   return function;
 }
 
-
-Type::FunctionType*
+FunctionType*
 CallTrampolineDescriptor::BuildCallInterfaceDescriptorFunctionType(
     Isolate* isolate, int paramater_count) {
   Zone* zone = isolate->interface_descriptor_zone();
-  Type::FunctionType* function =
-      Type::FunctionType::New(AnyTagged(zone), Type::Undefined(), 2, zone);
-  function->InitParameter(0, AnyTagged(zone));  // target
-  function->InitParameter(
-      1, UntaggedSigned32(zone));  // actual number of arguments
+  FunctionType* function =
+      Type::Function(AnyTagged(zone), Type::Undefined(), 2, zone)->AsFunction();
+  function->InitParameter(0, AnyTagged(zone));           // target
+  function->InitParameter(1, UntaggedIntegral32(zone));  // actual #arguments
   return function;
 }
 
+FunctionType* ConstructStubDescriptor::BuildCallInterfaceDescriptorFunctionType(
+    Isolate* isolate, int paramater_count) {
+  Zone* zone = isolate->interface_descriptor_zone();
+  FunctionType* function =
+      Type::Function(AnyTagged(zone), Type::Undefined(), 4, zone)->AsFunction();
+  function->InitParameter(0, AnyTagged(zone));           // target
+  function->InitParameter(1, AnyTagged(zone));           // new.target
+  function->InitParameter(2, UntaggedIntegral32(zone));  // actual #arguments
+  function->InitParameter(3, AnyTagged(zone));           // opt. allocation site
+  return function;
+}
 
-Type::FunctionType*
+FunctionType*
+ConstructTrampolineDescriptor::BuildCallInterfaceDescriptorFunctionType(
+    Isolate* isolate, int paramater_count) {
+  Zone* zone = isolate->interface_descriptor_zone();
+  FunctionType* function =
+      Type::Function(AnyTagged(zone), Type::Undefined(), 3, zone)->AsFunction();
+  function->InitParameter(0, AnyTagged(zone));           // target
+  function->InitParameter(1, AnyTagged(zone));           // new.target
+  function->InitParameter(2, UntaggedIntegral32(zone));  // actual #arguments
+  return function;
+}
+
+FunctionType*
 CallFunctionWithFeedbackDescriptor::BuildCallInterfaceDescriptorFunctionType(
     Isolate* isolate, int paramater_count) {
   Zone* zone = isolate->interface_descriptor_zone();
-  Type::FunctionType* function =
-      Type::FunctionType::New(AnyTagged(zone), Type::Undefined(), 2, zone);
+  FunctionType* function =
+      Type::Function(AnyTagged(zone), Type::Undefined(), 2, zone)->AsFunction();
   function->InitParameter(0, Type::Receiver());  // JSFunction
   function->InitParameter(1, SmiType(zone));
   return function;
 }
 
-
-Type::FunctionType* CallFunctionWithFeedbackAndVectorDescriptor::
+FunctionType* CallFunctionWithFeedbackAndVectorDescriptor::
     BuildCallInterfaceDescriptorFunctionType(Isolate* isolate,
                                              int paramater_count) {
   Zone* zone = isolate->interface_descriptor_zone();
-  Type::FunctionType* function =
-      Type::FunctionType::New(AnyTagged(zone), Type::Undefined(), 3, zone);
+  FunctionType* function =
+      Type::Function(AnyTagged(zone), Type::Undefined(), 3, zone)->AsFunction();
   function->InitParameter(0, Type::Receiver());  // JSFunction
   function->InitParameter(1, SmiType(zone));
   function->InitParameter(2, AnyTagged(zone));
   return function;
 }
 
-
-Type::FunctionType*
+FunctionType*
 ArrayConstructorDescriptor::BuildCallInterfaceDescriptorFunctionType(
     Isolate* isolate, int paramater_count) {
   Zone* zone = isolate->interface_descriptor_zone();
-  Type::FunctionType* function =
-      Type::FunctionType::New(AnyTagged(zone), Type::Undefined(), 3, zone);
+  FunctionType* function =
+      Type::Function(AnyTagged(zone), Type::Undefined(), 3, zone)->AsFunction();
   function->InitParameter(0, Type::Receiver());  // JSFunction
   function->InitParameter(1, AnyTagged(zone));
-  function->InitParameter(2, UntaggedSigned32(zone));
+  function->InitParameter(2, UntaggedIntegral32(zone));
   return function;
 }
 
-
-Type::FunctionType*
+FunctionType*
 InternalArrayConstructorDescriptor::BuildCallInterfaceDescriptorFunctionType(
     Isolate* isolate, int paramater_count) {
   Zone* zone = isolate->interface_descriptor_zone();
-  Type::FunctionType* function =
-      Type::FunctionType::New(AnyTagged(zone), Type::Undefined(), 2, zone);
+  FunctionType* function =
+      Type::Function(AnyTagged(zone), Type::Undefined(), 2, zone)->AsFunction();
   function->InitParameter(0, Type::Receiver());  // JSFunction
-  function->InitParameter(1, UntaggedSigned32(zone));
+  function->InitParameter(1, UntaggedIntegral32(zone));
   return function;
 }
 
-
-Type::FunctionType*
+FunctionType*
 ArgumentAdaptorDescriptor::BuildCallInterfaceDescriptorFunctionType(
     Isolate* isolate, int paramater_count) {
   Zone* zone = isolate->interface_descriptor_zone();
-  Type::FunctionType* function =
-      Type::FunctionType::New(AnyTagged(zone), Type::Undefined(), 3, zone);
-  function->InitParameter(0, Type::Receiver());    // JSFunction
-  function->InitParameter(
-      1, UntaggedSigned32(zone));  // actual number of arguments
-  function->InitParameter(
-      2,
-      UntaggedSigned32(zone));  // expected number of arguments
+  FunctionType* function =
+      Type::Function(AnyTagged(zone), Type::Undefined(), 4, zone)->AsFunction();
+  function->InitParameter(0, Type::Receiver());          // JSFunction
+  function->InitParameter(1, AnyTagged(zone));           // the new target
+  function->InitParameter(2, UntaggedIntegral32(zone));  // actual #arguments
+  function->InitParameter(3, UntaggedIntegral32(zone));  // expected #arguments
   return function;
 }
 
+CallInterfaceDescriptor ApiCallbackDescriptorBase::ForArgs(Isolate* isolate,
+                                                           int argc) {
+  switch (argc) {
+    case 0:
+      return ApiCallbackWith0ArgsDescriptor(isolate);
+    case 1:
+      return ApiCallbackWith1ArgsDescriptor(isolate);
+    case 2:
+      return ApiCallbackWith2ArgsDescriptor(isolate);
+    case 3:
+      return ApiCallbackWith3ArgsDescriptor(isolate);
+    case 4:
+      return ApiCallbackWith4ArgsDescriptor(isolate);
+    case 5:
+      return ApiCallbackWith5ArgsDescriptor(isolate);
+    case 6:
+      return ApiCallbackWith6ArgsDescriptor(isolate);
+    case 7:
+      return ApiCallbackWith7ArgsDescriptor(isolate);
+    default:
+      UNREACHABLE();
+      return VoidDescriptor(isolate);
+  }
+}
 
-Type::FunctionType*
-ApiFunctionDescriptor::BuildCallInterfaceDescriptorFunctionType(
-    Isolate* isolate, int paramater_count) {
+FunctionType*
+ApiCallbackDescriptorBase::BuildCallInterfaceDescriptorFunctionTypeWithArg(
+    Isolate* isolate, int parameter_count, int argc) {
   Zone* zone = isolate->interface_descriptor_zone();
-  Type::FunctionType* function =
-      Type::FunctionType::New(AnyTagged(zone), Type::Undefined(), 5, zone);
+  FunctionType* function =
+      Type::Function(AnyTagged(zone), Type::Undefined(), 4 + argc, zone)
+          ->AsFunction();
   function->InitParameter(0, AnyTagged(zone));        // callee
   function->InitParameter(1, AnyTagged(zone));        // call_data
   function->InitParameter(2, AnyTagged(zone));        // holder
   function->InitParameter(3, ExternalPointer(zone));  // api_function_address
-  function->InitParameter(
-      4, UntaggedSigned32(zone));  // actual number of arguments
+  for (int i = 0; i < argc; i++) {
+    function->InitParameter(i, AnyTagged(zone));
+  }
   return function;
 }
 
-
-Type::FunctionType*
-ApiAccessorDescriptor::BuildCallInterfaceDescriptorFunctionType(
-    Isolate* isolate, int paramater_count) {
+FunctionType*
+InterpreterDispatchDescriptor::BuildCallInterfaceDescriptorFunctionType(
+    Isolate* isolate, int parameter_count) {
   Zone* zone = isolate->interface_descriptor_zone();
-  Type::FunctionType* function =
-      Type::FunctionType::New(AnyTagged(zone), Type::Undefined(), 4, zone);
-  function->InitParameter(0, AnyTagged(zone));        // callee
-  function->InitParameter(1, AnyTagged(zone));        // call_data
-  function->InitParameter(2, AnyTagged(zone));        // holder
-  function->InitParameter(3, ExternalPointer(zone));  // api_function_address
+  FunctionType* function =
+      Type::Function(AnyTagged(zone), Type::Undefined(), 5, zone)->AsFunction();
+  function->InitParameter(kAccumulatorParameter, AnyTagged(zone));
+  function->InitParameter(kRegisterFileParameter, ExternalPointer(zone));
+  function->InitParameter(kBytecodeOffsetParameter, UntaggedIntegral32(zone));
+  function->InitParameter(kBytecodeArrayParameter, AnyTagged(zone));
+  function->InitParameter(kDispatchTableParameter, AnyTagged(zone));
   return function;
 }
 
-
-Type::FunctionType* MathRoundVariantCallFromUnoptimizedCodeDescriptor::
-    BuildCallInterfaceDescriptorFunctionType(Isolate* isolate,
-                                             int paramater_count) {
-  Zone* zone = isolate->interface_descriptor_zone();
-  Type::FunctionType* function =
-      Type::FunctionType::New(AnyTagged(zone), Type::Undefined(), 4, zone);
-  function->InitParameter(0, Type::Receiver());
-  function->InitParameter(1, SmiType(zone));
-  function->InitParameter(2, AnyTagged(zone));
-  function->InitParameter(3, AnyTagged(zone));
-  return function;
-}
-
-
-Type::FunctionType* MathRoundVariantCallFromOptimizedCodeDescriptor::
-    BuildCallInterfaceDescriptorFunctionType(Isolate* isolate,
-                                             int paramater_count) {
-  Zone* zone = isolate->interface_descriptor_zone();
-  Type::FunctionType* function =
-      Type::FunctionType::New(AnyTagged(zone), Type::Undefined(), 5, zone);
-  function->InitParameter(0, Type::Receiver());
-  function->InitParameter(1, SmiType(zone));
-  function->InitParameter(2, AnyTagged(zone));
-  function->InitParameter(3, AnyTagged(zone));
-  function->InitParameter(4, AnyTagged(zone));
-  return function;
-}
 }  // namespace internal
 }  // namespace v8

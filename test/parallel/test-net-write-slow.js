@@ -1,5 +1,5 @@
 'use strict';
-var common = require('../common');
+require('../common');
 var assert = require('assert');
 var net = require('net');
 
@@ -7,8 +7,7 @@ var SIZE = 2E5;
 var N = 10;
 var flushed = 0;
 var received = 0;
-var buf = new Buffer(SIZE);
-buf.fill(0x61); // 'a'
+var buf = Buffer.alloc(SIZE, 'a');
 
 var server = net.createServer(function(socket) {
   socket.setNoDelay();
@@ -28,8 +27,8 @@ var server = net.createServer(function(socket) {
   }
   socket.end();
 
-}).listen(common.PORT, function() {
-  var conn = net.connect(common.PORT);
+}).listen(0, function() {
+  var conn = net.connect(this.address().port);
   conn.on('data', function(buf) {
     received += buf.length;
     conn.pause();

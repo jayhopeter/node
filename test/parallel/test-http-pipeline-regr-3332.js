@@ -1,11 +1,10 @@
 'use strict';
-const common = require('../common');
+require('../common');
 const assert = require('assert');
 const http = require('http');
 const net = require('net');
 
-const big = new Buffer(16 * 1024);
-big.fill('A');
+const big = Buffer.alloc(16 * 1024, 'A');
 
 const COUNT = 1e4;
 
@@ -19,9 +18,9 @@ const server = http.createServer(function(req, res) {
       client.end();
     }
   });
-}).listen(common.PORT, function() {
+}).listen(0, function() {
   var req = new Array(COUNT + 1).join('GET / HTTP/1.1\r\n\r\n');
-  client = net.connect(common.PORT, function() {
+  client = net.connect(this.address().port, function() {
     client.write(req);
   });
 

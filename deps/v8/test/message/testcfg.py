@@ -59,6 +59,10 @@ class MessageTestSuite(testsuite.TestSuite):
           tests.append(test)
     return tests
 
+  def CreateVariantGenerator(self, variants):
+    return super(MessageTestSuite, self).CreateVariantGenerator(
+        variants + ["preparser"])
+
   def GetFlagsForTestCase(self, testcase, context):
     source = self.GetSourceForTest(testcase)
     result = []
@@ -90,7 +94,9 @@ class MessageTestSuite(testsuite.TestSuite):
             string.find("Native Client module will be loaded") > 0 or
             string.find("NaClHostDescOpen:") > 0)
 
-  def IsFailureOutput(self, output, testpath):
+  def IsFailureOutput(self, testcase):
+    output = testcase.output
+    testpath = testcase.path
     expected_path = os.path.join(self.root, testpath + ".out")
     expected_lines = []
     # Can't use utils.ReadLinesFrom() here because it strips whitespace.

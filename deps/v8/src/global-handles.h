@@ -165,7 +165,7 @@ class GlobalHandles {
   // Clear the weakness of a global handle.
   static void* ClearWeakness(Object** location);
 
-  // Clear the weakness of a global handle.
+  // Mark the reference to this object independent of any object group.
   static void MarkIndependent(Object** location);
 
   // Mark the reference to this object externaly unreachable.
@@ -197,6 +197,10 @@ class GlobalHandles {
   // class ID.
   void IterateAllRootsInNewSpaceWithClassIds(ObjectVisitor* v);
 
+  // Iterate over all handles in the new space that are weak, unmodified
+  // and have class IDs
+  void IterateWeakRootsInNewSpaceWithClassIds(ObjectVisitor* v);
+
   // Iterates over all weak roots in heap.
   void IterateWeakRoots(ObjectVisitor* v);
 
@@ -204,7 +208,7 @@ class GlobalHandles {
   // them as pending.
   void IdentifyWeakHandles(WeakSlotCallback f);
 
-  // NOTE: Three ...NewSpace... functions below are used during
+  // NOTE: Five ...NewSpace... functions below are used during
   // scavenge collections and iterate over sets of handles that are
   // guaranteed to contain all handles holding new space objects (but
   // may also include old space objects).
@@ -220,10 +224,26 @@ class GlobalHandles {
   // See the note above.
   void IterateNewSpaceWeakIndependentRoots(ObjectVisitor* v);
 
+  // Finds weak independent or unmodified handles satisfying
+  // the callback predicate and marks them as pending. See the note above.
+  void MarkNewSpaceWeakUnmodifiedObjectsPending(
+      WeakSlotCallbackWithHeap is_unscavenged);
+
+  // Iterates over weak independent or unmodified handles.
+  // See the note above.
+  void IterateNewSpaceWeakUnmodifiedRoots(ObjectVisitor* v);
+
+  // Identify unmodified objects that are in weak state and marks them
+  // unmodified
+  void IdentifyWeakUnmodifiedObjects(WeakSlotCallback is_unmodified);
+
   // Iterate over objects in object groups that have at least one object
   // which requires visiting. The callback has to return true if objects
   // can be skipped and false otherwise.
   bool IterateObjectGroups(ObjectVisitor* v, WeakSlotCallbackWithHeap can_skip);
+
+  // Print all objects in object groups
+  void PrintObjectGroups();
 
   // Add an object group.
   // Should be only used in GC callback function before a collection.
@@ -438,6 +458,7 @@ class EternalHandles {
 };
 
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_GLOBAL_HANDLES_H_

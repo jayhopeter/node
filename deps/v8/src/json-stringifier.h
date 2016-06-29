@@ -223,6 +223,7 @@ MaybeHandle<Object> BasicJsonStringifier::StringifyString(
     SerializeStringUnchecked_(object->GetFlatContent().ToOneByteVector(),
                               &no_extend);
     no_extend.Append('\"');
+    return no_extend.Finalize();
   } else {
     result = isolate->factory()
                  ->NewRawTwoByteString(worst_case_length)
@@ -233,8 +234,8 @@ MaybeHandle<Object> BasicJsonStringifier::StringifyString(
     SerializeStringUnchecked_(object->GetFlatContent().ToUC16Vector(),
                               &no_extend);
     no_extend.Append('\"');
+    return no_extend.Finalize();
   }
-  return result;
 }
 
 
@@ -244,7 +245,7 @@ MaybeHandle<Object> BasicJsonStringifier::ApplyToJsonFunction(
                     LookupIterator::PROTOTYPE_CHAIN_SKIP_INTERCEPTOR);
   Handle<Object> fun;
   ASSIGN_RETURN_ON_EXCEPTION(isolate_, fun, Object::GetProperty(&it), Object);
-  if (!fun->IsJSFunction()) return object;
+  if (!fun->IsCallable()) return object;
 
   // Call toJSON function.
   if (key->IsSmi()) key = factory()->NumberToString(key);
@@ -336,14 +337,13 @@ BasicJsonStringifier::Result BasicJsonStringifier::Serialize_(
     case JS_VALUE_TYPE:
       if (deferred_string_key) SerializeDeferredKey(comma, key);
       return SerializeJSValue(Handle<JSValue>::cast(object));
-    case JS_FUNCTION_TYPE:
-      return UNCHANGED;
     default:
       if (object->IsString()) {
         if (deferred_string_key) SerializeDeferredKey(comma, key);
         SerializeString(Handle<String>::cast(object));
         return SUCCESS;
       } else if (object->IsJSObject()) {
+        if (object->IsCallable()) return UNCHANGED;
         // Go to slow path for global proxy and objects requiring access checks.
         if (object->IsAccessCheckNeeded() || object->IsJSGlobalProxy()) break;
         if (deferred_string_key) SerializeDeferredKey(comma, key);
@@ -396,9 +396,10 @@ BasicJsonStringifier::Result BasicJsonStringifier::SerializeJSValue(
     DCHECK(value->IsBoolean());
     builder_.AppendCString(value->IsTrue() ? "true" : "false");
   } else {
-    // Fail gracefully for special value wrappers.
-    isolate_->ThrowIllegalOperation();
-    return EXCEPTION;
+    // ES6 24.3.2.1 step 10.c, serialize as an ordinary JSObject.
+    CHECK(!object->IsAccessCheckNeeded());
+    CHECK(!object->IsJSGlobalProxy());
+    return SerializeJSObject(object);
   }
   return SUCCESS;
 }
@@ -500,8 +501,7 @@ BasicJsonStringifier::Result BasicJsonStringifier::SerializeJSArraySlow(
     if (i > 0) builder_.AppendCharacter(',');
     Handle<Object> element;
     ASSIGN_RETURN_ON_EXCEPTION_VALUE(
-        isolate_, element,
-        Object::GetElement(isolate_, object, i),
+        isolate_, element, JSReceiver::GetElement(isolate_, object, i),
         EXCEPTION);
     if (element->IsUndefined()) {
       builder_.AppendCString("null");
@@ -524,7 +524,7 @@ BasicJsonStringifier::Result BasicJsonStringifier::SerializeJSObject(
   HandleScope handle_scope(isolate_);
   Result stack_push = StackPush(object);
   if (stack_push != SUCCESS) return stack_push;
-  DCHECK(!object->IsJSGlobalProxy() && !object->IsGlobalObject());
+  DCHECK(!object->IsJSGlobalProxy() && !object->IsJSGlobalObject());
 
   builder_.AppendCharacter('{');
   bool comma = false;
@@ -566,8 +566,7 @@ BasicJsonStringifier::Result BasicJsonStringifier::SerializeJSObject(
     Handle<FixedArray> contents;
     ASSIGN_RETURN_ON_EXCEPTION_VALUE(
         isolate_, contents,
-        JSReceiver::GetKeys(object, JSReceiver::OWN_ONLY),
-        EXCEPTION);
+        JSReceiver::GetKeys(object, OWN_ONLY, ENUMERABLE_STRINGS), EXCEPTION);
 
     for (int i = 0; i < contents->length(); i++) {
       Object* key = contents->get(i);
@@ -580,8 +579,8 @@ BasicJsonStringifier::Result BasicJsonStringifier::SerializeJSObject(
         DCHECK(key->IsNumber());
         key_handle = factory()->NumberToString(Handle<Object>(key, isolate_));
         if (key->IsSmi()) {
-          maybe_property = Object::GetElement(
-              isolate_, object, Smi::cast(key)->value());
+          maybe_property =
+              JSReceiver::GetElement(isolate_, object, Smi::cast(key)->value());
         } else {
           maybe_property = Object::GetPropertyOrElement(object, key_handle);
         }
@@ -681,6 +680,7 @@ void BasicJsonStringifier::SerializeString(Handle<String> object) {
   }
 }
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_JSON_STRINGIFIER_H_

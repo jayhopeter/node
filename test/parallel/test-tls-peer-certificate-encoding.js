@@ -3,7 +3,7 @@ var common = require('../common');
 var assert = require('assert');
 
 if (!common.hasCrypto) {
-  console.log('1..0 # Skipped: missing crypto');
+  common.skip('missing crypto');
   return;
 }
 var tls = require('tls');
@@ -11,7 +11,6 @@ var tls = require('tls');
 var fs = require('fs');
 var util = require('util');
 var join = require('path').join;
-var spawn = require('child_process').spawn;
 
 var options = {
   key: fs.readFileSync(join(common.fixturesDir, 'keys', 'agent5-key.pem')),
@@ -23,9 +22,9 @@ var verified = false;
 var server = tls.createServer(options, function(cleartext) {
   cleartext.end('World');
 });
-server.listen(common.PORT, function() {
+server.listen(0, function() {
   var socket = tls.connect({
-    port: common.PORT,
+    port: this.address().port,
     rejectUnauthorized: false
   }, function() {
     var peerCert = socket.getPeerCertificate();

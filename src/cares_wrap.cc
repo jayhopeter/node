@@ -9,6 +9,7 @@
 #include "req-wrap-inl.h"
 #include "tree.h"
 #include "util.h"
+#include "util-inl.h"
 #include "uv.h"
 
 #include <errno.h>
@@ -90,7 +91,7 @@ static void NewQueryReqWrap(const FunctionCallbackInfo<Value>& args) {
 }
 
 
-static int cmp_ares_tasks(const ares_task_t* a, const ares_task_t* b) {
+static int cmp_ares_tasks(const node_ares_task* a, const node_ares_task* b) {
   if (a->sock < b->sock)
     return -1;
   if (a->sock > b->sock)
@@ -99,7 +100,7 @@ static int cmp_ares_tasks(const ares_task_t* a, const ares_task_t* b) {
 }
 
 
-RB_GENERATE_STATIC(ares_task_list, ares_task_t, node, cmp_ares_tasks)
+RB_GENERATE_STATIC(node_ares_task_list, node_ares_task, node, cmp_ares_tasks)
 
 
 
@@ -113,7 +114,7 @@ static void ares_timeout(uv_timer_t* handle) {
 
 
 static void ares_poll_cb(uv_poll_t* watcher, int status, int events) {
-  ares_task_t* task = ContainerOf(&ares_task_t::poll_watcher, watcher);
+  node_ares_task* task = ContainerOf(&node_ares_task::poll_watcher, watcher);
   Environment* env = task->env;
 
   /* Reset the idle timer */
@@ -134,15 +135,15 @@ static void ares_poll_cb(uv_poll_t* watcher, int status, int events) {
 
 
 static void ares_poll_close_cb(uv_handle_t* watcher) {
-  ares_task_t* task = ContainerOf(&ares_task_t::poll_watcher,
+  node_ares_task* task = ContainerOf(&node_ares_task::poll_watcher,
                                   reinterpret_cast<uv_poll_t*>(watcher));
   free(task);
 }
 
 
-/* Allocates and returns a new ares_task_t */
-static ares_task_t* ares_task_create(Environment* env, ares_socket_t sock) {
-  ares_task_t* task = static_cast<ares_task_t*>(malloc(sizeof(*task)));
+/* Allocates and returns a new node_ares_task */
+static node_ares_task* ares_task_create(Environment* env, ares_socket_t sock) {
+  node_ares_task* task = static_cast<node_ares_task*>(malloc(sizeof(*task)));
 
   if (task == nullptr) {
     /* Out of memory. */
@@ -168,11 +169,11 @@ static void ares_sockstate_cb(void* data,
                               int read,
                               int write) {
   Environment* env = static_cast<Environment*>(data);
-  ares_task_t* task;
+  node_ares_task* task;
 
-  ares_task_t lookup_task;
+  node_ares_task lookup_task;
   lookup_task.sock = sock;
-  task = RB_FIND(ares_task_list, env->cares_task_list(), &lookup_task);
+  task = RB_FIND(node_ares_task_list, env->cares_task_list(), &lookup_task);
 
   if (read || write) {
     if (!task) {
@@ -193,7 +194,7 @@ static void ares_sockstate_cb(void* data,
         return;
       }
 
-      RB_INSERT(ares_task_list, env->cares_task_list(), task);
+      RB_INSERT(node_ares_task_list, env->cares_task_list(), task);
     }
 
     /* This should never fail. If it fails anyway, the query will eventually */
@@ -209,7 +210,7 @@ static void ares_sockstate_cb(void* data,
     CHECK(task &&
           "When an ares socket is closed we should have a handle for it");
 
-    RB_REMOVE(ares_task_list, env->cares_task_list(), task);
+    RB_REMOVE(node_ares_task_list, env->cares_task_list(), task);
     uv_close(reinterpret_cast<uv_handle_t*>(&task->poll_watcher),
              ares_poll_close_cb);
 
@@ -256,8 +257,9 @@ class QueryWrap : public AsyncWrap {
       req_wrap_obj->Set(env->domain_string(), env->domain_array()->Get(0));
   }
 
-  virtual ~QueryWrap() override {
+  ~QueryWrap() override {
     CHECK_EQ(false, persistent().IsEmpty());
+    ClearWrap(object());
     persistent().Reset();
   }
 
@@ -310,7 +312,7 @@ class QueryWrap : public AsyncWrap {
       Integer::New(env()->isolate(), 0),
       answer
     };
-    MakeCallback(env()->oncomplete_string(), ARRAY_SIZE(argv), argv);
+    MakeCallback(env()->oncomplete_string(), arraysize(argv), argv);
   }
 
   void CallOnComplete(Local<Value> answer, Local<Value> family) {
@@ -321,7 +323,7 @@ class QueryWrap : public AsyncWrap {
       answer,
       family
     };
-    MakeCallback(env()->oncomplete_string(), ARRAY_SIZE(argv), argv);
+    MakeCallback(env()->oncomplete_string(), arraysize(argv), argv);
   }
 
   void ParseError(int status) {
@@ -369,11 +371,11 @@ class QueryWrap : public AsyncWrap {
   // Subclasses should implement the appropriate Parse method.
   virtual void Parse(unsigned char* buf, int len) {
     UNREACHABLE();
-  };
+  }
 
   virtual void Parse(struct hostent* host) {
     UNREACHABLE();
-  };
+  }
 };
 
 
@@ -607,9 +609,9 @@ class QueryTxtWrap: public QueryWrap {
   void Parse(unsigned char* buf, int len) override {
     HandleScope handle_scope(env()->isolate());
     Context::Scope context_scope(env()->context());
-    struct ares_txt_reply* txt_out;
+    struct ares_txt_ext* txt_out;
 
-    int status = ares_parse_txt_reply(buf, len, &txt_out);
+    int status = ares_parse_txt_reply_ext(buf, len, &txt_out);
     if (status != ARES_SUCCESS) {
       ParseError(status);
       return;
@@ -618,7 +620,7 @@ class QueryTxtWrap: public QueryWrap {
     Local<Array> txt_records = Array::New(env()->isolate());
     Local<Array> txt_chunk;
 
-    ares_txt_reply* current = txt_out;
+    struct ares_txt_ext* current = txt_out;
     uint32_t i = 0;
     for (uint32_t j = 0; current != nullptr; current = current->next) {
       Local<String> txt = OneByteString(env()->isolate(), current->txt);
@@ -695,6 +697,49 @@ class QuerySrvWrap: public QueryWrap {
     ares_free_data(srv_start);
 
     this->CallOnComplete(srv_records);
+  }
+};
+
+class QueryPtrWrap: public QueryWrap {
+ public:
+  explicit QueryPtrWrap(Environment* env, Local<Object> req_wrap_obj)
+      : QueryWrap(env, req_wrap_obj) {
+  }
+
+  int Send(const char* name) override {
+    ares_query(env()->cares_channel(),
+               name,
+               ns_c_in,
+               ns_t_ptr,
+               Callback,
+               GetQueryArg());
+    return 0;
+  }
+
+  size_t self_size() const override { return sizeof(*this); }
+
+ protected:
+  void Parse(unsigned char* buf, int len) override {
+    HandleScope handle_scope(env()->isolate());
+    Context::Scope context_scope(env()->context());
+
+    struct hostent* host;
+
+    int status = ares_parse_ptr_reply(buf, len, NULL, 0, AF_INET, &host);
+    if (status != ARES_SUCCESS) {
+      ParseError(status);
+      return;
+    }
+
+    Local<Array> aliases = Array::New(env()->isolate());
+
+    for (uint32_t i = 0; host->h_aliases[i] != NULL; i++) {
+      aliases->Set(i, OneByteString(env()->isolate(), host->h_aliases[i]));
+    }
+
+    ares_free_hostent(host);
+
+    this->CallOnComplete(aliases);
   }
 };
 
@@ -983,6 +1028,10 @@ void AfterGetAddrInfo(uv_getaddrinfo_t* req, int status, struct addrinfo* res) {
       address = address->ai_next;
     }
 
+    // No responses were found to return
+    if (n == 0) {
+      argv[0] = Integer::New(env->isolate(), UV_EAI_NODATA);
+    }
 
     argv[1] = results;
   }
@@ -990,7 +1039,7 @@ void AfterGetAddrInfo(uv_getaddrinfo_t* req, int status, struct addrinfo* res) {
   uv_freeaddrinfo(res);
 
   // Make the callback into JavaScript
-  req_wrap->MakeCallback(env->oncomplete_string(), ARRAY_SIZE(argv), argv);
+  req_wrap->MakeCallback(env->oncomplete_string(), arraysize(argv), argv);
 
   delete req_wrap;
 }
@@ -1021,7 +1070,7 @@ void AfterGetNameInfo(uv_getnameinfo_t* req,
   }
 
   // Make the callback into JavaScript
-  req_wrap->MakeCallback(env->oncomplete_string(), ARRAY_SIZE(argv), argv);
+  req_wrap->MakeCallback(env->oncomplete_string(), arraysize(argv), argv);
 
   delete req_wrap;
 }
@@ -1040,6 +1089,27 @@ static void IsIP(const FunctionCallbackInfo<Value>& args) {
   args.GetReturnValue().Set(rc);
 }
 
+static void IsIPv4(const FunctionCallbackInfo<Value>& args) {
+  node::Utf8Value ip(args.GetIsolate(), args[0]);
+  char address_buffer[sizeof(struct in_addr)];
+
+  if (uv_inet_pton(AF_INET, *ip, &address_buffer) == 0) {
+    args.GetReturnValue().Set(true);
+  } else {
+    args.GetReturnValue().Set(false);
+  }
+}
+
+static void IsIPv6(const FunctionCallbackInfo<Value>& args) {
+  node::Utf8Value ip(args.GetIsolate(), args[0]);
+  char address_buffer[sizeof(struct in6_addr)];
+
+  if (uv_inet_pton(AF_INET6, *ip, &address_buffer) == 0) {
+    args.GetReturnValue().Set(true);
+  } else {
+    args.GetReturnValue().Set(false);
+  }
+}
 
 static void GetAddrInfo(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
@@ -1272,6 +1342,7 @@ static void Initialize(Local<Object> target,
   env->SetMethod(target, "queryNs", Query<QueryNsWrap>);
   env->SetMethod(target, "queryTxt", Query<QueryTxtWrap>);
   env->SetMethod(target, "querySrv", Query<QuerySrvWrap>);
+  env->SetMethod(target, "queryPtr", Query<QueryPtrWrap>);
   env->SetMethod(target, "queryNaptr", Query<QueryNaptrWrap>);
   env->SetMethod(target, "querySoa", Query<QuerySoaWrap>);
   env->SetMethod(target, "getHostByAddr", Query<GetHostByAddrWrap>);
@@ -1279,6 +1350,8 @@ static void Initialize(Local<Object> target,
   env->SetMethod(target, "getaddrinfo", GetAddrInfo);
   env->SetMethod(target, "getnameinfo", GetNameInfo);
   env->SetMethod(target, "isIP", IsIP);
+  env->SetMethod(target, "isIPv4", IsIPv4);
+  env->SetMethod(target, "isIPv6", IsIPv6);
 
   env->SetMethod(target, "strerror", StrError);
   env->SetMethod(target, "getServers", GetServers);

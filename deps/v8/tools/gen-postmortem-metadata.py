@@ -82,7 +82,7 @@ consts_misc = [
     { 'name': 'OddballTrue',            'value': 'Oddball::kTrue' },
     { 'name': 'OddballTheHole',         'value': 'Oddball::kTheHole' },
     { 'name': 'OddballNull',            'value': 'Oddball::kNull' },
-    { 'name': 'OddballArgumentMarker',  'value': 'Oddball::kArgumentMarker' },
+    { 'name': 'OddballArgumentsMarker', 'value': 'Oddball::kArgumentsMarker' },
     { 'name': 'OddballUndefined',       'value': 'Oddball::kUndefined' },
     { 'name': 'OddballUninitialized',   'value': 'Oddball::kUninitialized' },
     { 'name': 'OddballOther',           'value': 'Oddball::kOther' },
@@ -154,8 +154,6 @@ consts_misc = [
         'value': 'StandardFrameConstants::kContextOffset' },
     { 'name': 'off_fp_constant_pool',
         'value': 'StandardFrameConstants::kConstantPoolOffset' },
-    { 'name': 'off_fp_marker',
-        'value': 'StandardFrameConstants::kMarkerOffset' },
     { 'name': 'off_fp_function',
         'value': 'JavaScriptFrameConstants::kFunctionOffset' },
     { 'name': 'off_fp_args',
@@ -189,7 +187,7 @@ consts_misc = [
 extras_accessors = [
     'JSFunction, context, Context, kContextOffset',
     'Context, closure_index, int, CLOSURE_INDEX',
-    'Context, global_object_index, int, GLOBAL_OBJECT_INDEX',
+    'Context, native_context_index, int, NATIVE_CONTEXT_INDEX',
     'Context, previous_index, int, PREVIOUS_INDEX',
     'Context, min_context_slots, int, MIN_CONTEXT_SLOTS',
     'HeapObject, map, Map, kMapOffset',
@@ -319,7 +317,7 @@ def load_objects():
                         in_insttype = False;
                         continue;
 
-                line = re.sub('//.*', '', line.rstrip().lstrip());
+                line = re.sub('//.*', '', line.strip());
 
                 if (in_insttype):
                         typestr += line;
@@ -329,10 +327,10 @@ def load_objects():
                     line);
 
                 if (match):
-                        klass = match.group(1).rstrip().lstrip();
+                        klass = match.group(1).strip();
                         pklass = match.group(3);
                         if (pklass):
-                                pklass = pklass.rstrip().lstrip();
+                                pklass = pklass.strip();
                         klasses[klass] = { 'parent': pklass };
 
         #

@@ -1,16 +1,16 @@
 'use strict';
+const common = require('../common');
 if (!process.features.tls_npn) {
-  console.log('1..0 # Skipped: node compiled without OpenSSL or ' +
+  common.skip('node compiled without OpenSSL or ' +
               'with old OpenSSL version.');
   return;
 }
 
-var common = require('../common'),
-    assert = require('assert'),
-    fs = require('fs');
+const assert = require('assert');
+const fs = require('fs');
 
 if (!common.hasCrypto) {
-  console.log('1..0 # Skipped: missing crypto');
+  common.skip('missing crypto');
   return;
 }
 var tls = require('tls');
@@ -38,30 +38,28 @@ var serverOptions = {
   NPNProtocols: ['a', 'b', 'c']
 };
 
-var serverPort = common.PORT;
-
 var clientsOptions = [{
-  port: serverPort,
+  port: undefined,
   key: serverOptions.key,
   cert: serverOptions.cert,
   crl: serverOptions.crl,
   NPNProtocols: ['a', 'b', 'c'],
   rejectUnauthorized: false
 }, {
-  port: serverPort,
+  port: undefined,
   key: serverOptions.key,
   cert: serverOptions.cert,
   crl: serverOptions.crl,
   NPNProtocols: ['c', 'b', 'e'],
   rejectUnauthorized: false
 }, {
-  port: serverPort,
+  port: undefined,
   key: serverOptions.key,
   cert: serverOptions.cert,
   crl: serverOptions.crl,
   rejectUnauthorized: false
 }, {
-  port: serverPort,
+  port: undefined,
   key: serverOptions.key,
   cert: serverOptions.cert,
   crl: serverOptions.crl,
@@ -69,23 +67,24 @@ var clientsOptions = [{
   rejectUnauthorized: false
 }];
 
-var serverResults = [],
-    clientsResults = [];
+const serverResults = [];
+const clientsResults = [];
 
 var server = tls.createServer(serverOptions, function(c) {
   serverResults.push(c.npnProtocol);
 });
-server.listen(serverPort, startTest);
+server.listen(0, startTest);
 
 function startTest() {
   function connectClient(options, callback) {
+    options.port = server.address().port;
     var client = tls.connect(options, function() {
       clientsResults.push(client.npnProtocol);
       client.destroy();
 
       callback();
     });
-  };
+  }
 
   connectClient(clientsOptions[0], function() {
     connectClient(clientsOptions[1], function() {

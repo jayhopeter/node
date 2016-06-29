@@ -25,7 +25,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// Flags: --allow-natives-syntax --harmony-sloppy --no-legacy-const --harmony-sloppy-let --harmony-sloppy-function
+// Flags: --allow-natives-syntax --harmony-sloppy --harmony-sloppy-let --harmony-sloppy-function
 // Test functionality of block scopes.
 
 // Hoisting of var declarations.
@@ -88,7 +88,6 @@ function f3(one) {
 for (var j = 0; j < 5; ++j) f3(1);
 %OptimizeFunctionOnNextCall(f3);
 f3(1);
-assertTrue(%GetOptimizationStatus(f3) != 2);
 
 
 

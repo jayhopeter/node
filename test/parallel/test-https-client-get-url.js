@@ -6,7 +6,7 @@ var common = require('../common');
 var assert = require('assert');
 
 if (!common.hasCrypto) {
-  console.log('1..0 # Skipped: missing crypto');
+  common.skip('missing crypto');
   return;
 }
 var https = require('https');
@@ -30,8 +30,8 @@ var server = https.createServer(options, function(req, res) {
   seen_req = true;
 });
 
-server.listen(common.PORT, function() {
-  https.get('https://127.0.0.1:' + common.PORT + '/foo?bar');
+server.listen(0, function() {
+  https.get(`https://127.0.0.1:${this.address().port}/foo?bar`);
 });
 
 process.on('exit', function() {

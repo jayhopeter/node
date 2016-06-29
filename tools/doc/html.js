@@ -1,16 +1,42 @@
-var fs = require('fs');
-var marked = require('marked');
-var path = require('path');
-var preprocess = require('./preprocess.js');
+'use strict';
+
+const common = require('./common.js');
+const fs = require('fs');
+const marked = require('marked');
+const path = require('path');
+const preprocess = require('./preprocess.js');
+const typeParser = require('./type-parser.js');
 
 module.exports = toHTML;
 
+// customized heading without id attribute
+var renderer = new marked.Renderer();
+renderer.heading = function(text, level) {
+  return '<h' + level + '>' + text + '</h' + level + '>\n';
+};
+marked.setOptions({
+  renderer: renderer
+});
+
 // TODO(chrisdickinson): never stop vomitting / fix this.
-var gtocPath = path.resolve(path.join(__dirname, '..', '..', 'doc', 'api', '_toc.markdown'));
+var gtocPath = path.resolve(path.join(
+  __dirname,
+  '..',
+  '..',
+  'doc',
+  'api',
+  '_toc.md'
+));
 var gtocLoading = null;
 var gtocData = null;
 
-function toHTML(input, filename, template, cb) {
+/**
+ * opts: input, filename, template, nodeVersion.
+ */
+function toHTML(opts, cb) {
+  var template = opts.template;
+  var nodeVersion = opts.nodeVersion || process.version;
+
   if (gtocData) {
     return onGtocLoaded();
   }
@@ -31,10 +57,15 @@ function toHTML(input, filename, template, cb) {
   }
 
   function onGtocLoaded() {
-    var lexed = marked.lexer(input);
+    var lexed = marked.lexer(opts.input);
     fs.readFile(template, 'utf8', function(er, template) {
       if (er) return cb(er);
-      render(lexed, filename, template, cb);
+      render({
+        lexed: lexed,
+        filename: opts.filename,
+        template: template,
+        nodeVersion: nodeVersion,
+      }, cb);
     });
   }
 }
@@ -55,15 +86,27 @@ function loadGtoc(cb) {
 }
 
 function toID(filename) {
-  return filename.replace('.html', '').replace(/[^\w\-]/g, '-').replace(/-+/g, '-');
+  return filename
+    .replace('.html', '')
+    .replace(/[^\w\-]/g, '-')
+    .replace(/-+/g, '-');
 }
 
-function render(lexed, filename, template, cb) {
+/**
+ * opts: lexed, filename, template, nodeVersion.
+ */
+function render(opts, cb) {
+  var lexed = opts.lexed;
+  var filename = opts.filename;
+  var template = opts.template;
+  var nodeVersion = opts.nodeVersion || process.version;
+
   // get the section
   var section = getSection(lexed);
 
-  filename = path.basename(filename, '.markdown');
+  filename = path.basename(filename, '.md');
 
+  parseText(lexed);
   lexed = parseLists(lexed);
 
   // generate the table of contents.
@@ -76,7 +119,7 @@ function render(lexed, filename, template, cb) {
     template = template.replace(/__ID__/g, id);
     template = template.replace(/__FILENAME__/g, filename);
     template = template.replace(/__SECTION__/g, section);
-    template = template.replace(/__VERSION__/g, process.version);
+    template = template.replace(/__VERSION__/g, nodeVersion);
     template = template.replace(/__TOC__/g, toc);
     template = template.replace(
       /__GTOC__/g,
@@ -85,13 +128,23 @@ function render(lexed, filename, template, cb) {
 
     // content has to be the last thing we do with
     // the lexed tokens, because it's destructive.
-    content = marked.parser(lexed);
+    const content = marked.parser(lexed);
     template = template.replace(/__CONTENT__/g, content);
 
     cb(null, template);
   });
 }
 
+// handle general body-text replacements
+// for example, link man page references to the actual page
+function parseText(lexed) {
+  lexed.forEach(function(tok) {
+    if (tok.text && tok.type !== 'code') {
+      tok.text = linkManPages(tok.text);
+      tok.text = linkJsTypeDocs(tok.text);
+    }
+  });
+}
 
 // just update the list item text in-place.
 // lists that come right after a heading are what we're after.
@@ -106,7 +159,8 @@ function parseLists(input) {
       output.push({ type: 'html', text: tok.text });
       return;
     }
-    if (state === null) {
+    if (state === null ||
+      (state === 'AFTERHEADING' && tok.type === 'heading')) {
       if (tok.type === 'heading') {
         state = 'AFTERHEADING';
       }
@@ -117,11 +171,14 @@ function parseLists(input) {
       if (tok.type === 'list_start') {
         state = 'LIST';
         if (depth === 0) {
-          output.push({ type:'html', text: '<div class="signature">' });
+          output.push({ type: 'html', text: '<div class="signature">' });
         }
         depth++;
         output.push(tok);
         return;
+      }
+      if (tok.type === 'html' && common.isYAMLBlock(tok.text)) {
+        tok.text = parseYAML(tok.text);
       }
       state = null;
       output.push(tok);
@@ -135,15 +192,12 @@ function parseLists(input) {
       }
       if (tok.type === 'list_end') {
         depth--;
+        output.push(tok);
         if (depth === 0) {
           state = null;
-          output.push({ type:'html', text: '</div>' });
+          output.push({ type: 'html', text: '</div>' });
         }
-        output.push(tok);
         return;
-      }
-      if (tok.text) {
-        tok.text = parseListItem(tok.text);
       }
     }
     output.push(tok);
@@ -152,13 +206,56 @@ function parseLists(input) {
   return output;
 }
 
+function parseYAML(text) {
+  const meta = common.extractAndParseYAML(text);
+  const html = ['<div class="api_metadata">'];
 
-function parseListItem(text) {
+  if (meta.added) {
+    html.push(`<span>Added in: ${meta.added.join(', ')}</span>`);
+  }
+
+  if (meta.deprecated) {
+    html.push(`<span>Deprecated since: ${meta.deprecated.join(', ')} </span>`);
+  }
+
+  html.push('</div>');
+  return html.join('\n');
+}
+
+// Syscalls which appear in the docs, but which only exist in BSD / OSX
+var BSD_ONLY_SYSCALLS = new Set(['lchmod']);
+
+// Handle references to man pages, eg "open(2)" or "lchmod(2)"
+// Returns modified text, with such refs replace with HTML links, for example
+// '<a href="http://man7.org/linux/man-pages/man2/open.2.html">open(2)</a>'
+function linkManPages(text) {
+  return text.replace(/ ([a-z]+)\((\d)\)/gm, function(match, name, number) {
+    // name consists of lowercase letters, number is a single digit
+    var displayAs = name + '(' + number + ')';
+    if (BSD_ONLY_SYSCALLS.has(name)) {
+      return ' <a href="https://www.freebsd.org/cgi/man.cgi?query=' + name +
+             '&sektion=' + number + '">' + displayAs + '</a>';
+    } else {
+      return ' <a href="http://man7.org/linux/man-pages/man' + number +
+             '/' + name + '.' + number + '.html">' + displayAs + '</a>';
+    }
+  });
+}
+
+function linkJsTypeDocs(text) {
   var parts = text.split('`');
   var i;
+  var typeMatches;
 
+  // Handle types, for example the source Markdown might say
+  // "This argument should be a {Number} or {String}"
   for (i = 0; i < parts.length; i += 2) {
-    parts[i] = parts[i].replace(/\{([^\}]+)\}/, '<span class="type">$1</span>');
+    typeMatches = parts[i].match(/\{([^\}]+)\}/g);
+    if (typeMatches) {
+      typeMatches.forEach(function(typeMatch) {
+        parts[i] = parts[i].replace(typeMatch, typeParser.toLink(typeMatch));
+      });
+    }
   }
 
   //XXX maybe put more stuff here?
@@ -166,14 +263,15 @@ function parseListItem(text) {
 }
 
 function parseAPIHeader(text) {
-  text = text.replace(/(.*:)\s(\d)([\s\S]*)/,
-                      '<pre class="api_stability_$2">$1 $2$3</pre>');
+  text = text.replace(
+    /(.*:)\s(\d)([\s\S]*)/,
+    '<pre class="api_stability api_stability_$2">$1 $2$3</pre>'
+  );
   return text;
 }
 
 // section is just the first heading
 function getSection(lexed) {
-  var section = '';
   for (var i = 0, l = lexed.length; i < l; i++) {
     var tok = lexed[i];
     if (tok.type === 'heading') return tok.text;
@@ -183,10 +281,23 @@ function getSection(lexed) {
 
 
 function buildToc(lexed, filename, cb) {
-  var indent = 0;
   var toc = [];
   var depth = 0;
+
+  const startIncludeRefRE = /^\s*<!-- \[start-include:(.+)\] -->\s*$/;
+  const endIncludeRefRE = /^\s*<!-- \[end-include:(.+)\] -->\s*$/;
+  const realFilenames = [filename];
+
   lexed.forEach(function(tok) {
+    // Keep track of the current filename along @include directives.
+    if (tok.type === 'html') {
+      let match;
+      if ((match = tok.text.match(startIncludeRefRE)) !== null)
+        realFilenames.unshift(match[1]);
+      else if (tok.text.match(endIncludeRefRE))
+        realFilenames.shift();
+    }
+
     if (tok.type !== 'heading') return;
     if (tok.depth - depth > 1) {
       return cb(new Error('Inappropriate heading level\n' +
@@ -194,7 +305,8 @@ function buildToc(lexed, filename, cb) {
     }
 
     depth = tok.depth;
-    var id = getId(filename + '_' + tok.text.trim());
+    const realFilename = path.basename(realFilenames[0], '.md');
+    const id = getId(realFilename + '_' + tok.text.trim());
     toc.push(new Array((depth - 1) * 2 + 1).join(' ') +
              '* <a href="#' + id + '">' +
              tok.text + '</a>');
@@ -219,4 +331,3 @@ function getId(text) {
   }
   return text;
 }
-

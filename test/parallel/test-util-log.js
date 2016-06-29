@@ -19,7 +19,7 @@ var tests = [
   {input: null, output: 'null'},
   {input: false, output: 'false'},
   {input: 42, output: '42'},
-  {input: function() {}, output: '[Function]'},
+  {input: function() {}, output: '[Function: input]'},
   {input: parseInt('not a number', 10), output: 'NaN'},
   {input: {answer: 42}, output: '{ answer: 42 }'},
   {input: [1, 2, 3], output: '[ 1, 2, 3 ]'}
@@ -28,9 +28,9 @@ var tests = [
 // test util.log()
 tests.forEach(function(test) {
   util.log(test.input);
-  var result = strings.shift().trim(),
-      re = (/[0-9]{1,2} [A-Z][a-z]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} - (.+)$/),
-      match = re.exec(result);
+  const result = strings.shift().trim();
+  const re = (/[0-9]{1,2} [A-Z][a-z]{2} [0-9]{2}:[0-9]{2}:[0-9]{2} - (.+)$/);
+  const match = re.exec(result);
   assert.ok(match);
   assert.equal(match[1], test.output);
 });

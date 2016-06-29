@@ -2,7 +2,7 @@
 var common = require('../common');
 
 if (!common.opensslCli) {
-  console.log('1..0 # Skipped: node compiled without OpenSSL CLI.');
+  common.skip('node compiled without OpenSSL CLI.');
   return;
 }
 
@@ -13,7 +13,7 @@ var fs = require('fs');
 var spawn = require('child_process').spawn;
 
 if (!common.hasCrypto) {
-  console.log('1..0 # Skipped: missing crypto');
+  common.skip('missing crypto');
   return;
 }
 var https = require('https');
@@ -46,10 +46,10 @@ var server = https.createServer(options, function(req, res) {
   res.end(body);
 });
 
-server.listen(common.PORT, function() {
+server.listen(0, function() {
   var args = ['s_client',
               '-quiet',
-              '-connect', '127.0.0.1:' + common.PORT,
+              '-connect', `127.0.0.1:${this.address().port}`,
               '-cert', join(common.fixturesDir, 'foafssl.crt'),
               '-key', join(common.fixturesDir, 'foafssl.key')];
 

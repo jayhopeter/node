@@ -25,7 +25,7 @@
 // (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 // OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-// Flags: --harmony-proxies --harmony-object-observe
+// Flags: --harmony-object-observe
 // Flags: --allow-natives-syntax
 
 var allObservers = [];
@@ -350,10 +350,10 @@ Object.freeze(obj);
 
 Object.deliverChangeRecords(observer.callback);
 observer.assertCallbackRecords([
+  { object: obj, type: 'preventExtensions' },
   { object: obj, type: 'reconfigure', name: 'a' },
   { object: obj, type: 'reconfigure', name: 'b' },
   { object: obj, type: 'reconfigure', name: 'c' },
-  { object: obj, type: 'preventExtensions' },
 ]);
 
 reset();
@@ -387,9 +387,9 @@ Object.seal(obj);
 
 Object.deliverChangeRecords(observer.callback);
 observer.assertCallbackRecords([
+  { object: obj, type: 'preventExtensions' },
   { object: obj, type: 'reconfigure', name: 'a' },
   { object: obj, type: 'reconfigure', name: 'b' },
-  { object: obj, type: 'preventExtensions' },
 ]);
 
 reset();

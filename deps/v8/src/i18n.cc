@@ -16,6 +16,7 @@
 #include "unicode/decimfmt.h"
 #include "unicode/dtfmtsym.h"
 #include "unicode/dtptngen.h"
+#include "unicode/gregocal.h"
 #include "unicode/locid.h"
 #include "unicode/numfmt.h"
 #include "unicode/numsys.h"
@@ -38,7 +39,8 @@ bool ExtractStringSetting(Isolate* isolate,
                           const char* key,
                           icu::UnicodeString* setting) {
   Handle<String> str = isolate->factory()->NewStringFromAsciiChecked(key);
-  Handle<Object> object = Object::GetProperty(options, str).ToHandleChecked();
+  Handle<Object> object =
+      JSReceiver::GetProperty(options, str).ToHandleChecked();
   if (object->IsString()) {
     v8::String::Utf8Value utf8_string(
         v8::Utils::ToLocal(Handle<String>::cast(object)));
@@ -54,7 +56,8 @@ bool ExtractIntegerSetting(Isolate* isolate,
                            const char* key,
                            int32_t* value) {
   Handle<String> str = isolate->factory()->NewStringFromAsciiChecked(key);
-  Handle<Object> object = Object::GetProperty(options, str).ToHandleChecked();
+  Handle<Object> object =
+      JSReceiver::GetProperty(options, str).ToHandleChecked();
   if (object->IsNumber()) {
     object->ToInt32(value);
     return true;
@@ -68,7 +71,8 @@ bool ExtractBooleanSetting(Isolate* isolate,
                            const char* key,
                            bool* value) {
   Handle<String> str = isolate->factory()->NewStringFromAsciiChecked(key);
-  Handle<Object> object = Object::GetProperty(options, str).ToHandleChecked();
+  Handle<Object> object =
+      JSReceiver::GetProperty(options, str).ToHandleChecked();
   if (object->IsBoolean()) {
     *value = object->BooleanValue();
     return true;
@@ -95,6 +99,16 @@ icu::SimpleDateFormat* CreateICUDateFormat(
   UErrorCode status = U_ZERO_ERROR;
   icu::Calendar* calendar =
       icu::Calendar::createInstance(tz, icu_locale, status);
+
+  if (calendar->getDynamicClassID() ==
+      icu::GregorianCalendar::getStaticClassID()) {
+    icu::GregorianCalendar* gc = (icu::GregorianCalendar*)calendar;
+    UErrorCode status = U_ZERO_ERROR;
+    // The beginning of ECMAScript time, namely -(2**53)
+    const double start_of_time = -9007199254740992;
+    gc->setGregorianChange(start_of_time, status);
+    DCHECK(U_SUCCESS(status));
+  }
 
   // Make formatter from skeleton. Calendar and numbering system are added
   // to the locale as Unicode extension (if they were specified at all).
@@ -134,7 +148,7 @@ void SetResolvedDateSettings(Isolate* isolate,
   icu::UnicodeString pattern;
   date_format->toPattern(pattern);
   JSObject::SetProperty(
-      resolved, factory->NewStringFromStaticChars("pattern"),
+      resolved, factory->intl_pattern_symbol(),
       factory->NewStringFromTwoByte(
                    Vector<const uint16_t>(
                        reinterpret_cast<const uint16_t*>(pattern.getBuffer()),
@@ -356,7 +370,7 @@ void SetResolvedNumberSettings(Isolate* isolate,
   icu::UnicodeString pattern;
   number_format->toPattern(pattern);
   JSObject::SetProperty(
-      resolved, factory->NewStringFromStaticChars("pattern"),
+      resolved, factory->intl_pattern_symbol(),
       factory->NewStringFromTwoByte(
                    Vector<const uint16_t>(
                        reinterpret_cast<const uint16_t*>(pattern.getBuffer()),

@@ -9,14 +9,14 @@
 #include "src/compiler/node-matchers.h"
 #include "src/compiler/operator-properties.h"
 #include "src/conversions-inl.h"
+#include "src/type-cache.h"
 
 namespace v8 {
 namespace internal {
 namespace compiler {
 
 SimplifiedOperatorReducer::SimplifiedOperatorReducer(JSGraph* jsgraph)
-    : jsgraph_(jsgraph), simplified_(jsgraph->zone()) {}
-
+    : jsgraph_(jsgraph), type_cache_(TypeCache::Get()) {}
 
 SimplifiedOperatorReducer::~SimplifiedOperatorReducer() {}
 
@@ -89,8 +89,37 @@ Reduction SimplifiedOperatorReducer::Reduce(Node* node) {
       if (m.HasValue()) return ReplaceNumber(FastUI2D(m.Value()));
       break;
     }
+    case IrOpcode::kNumberCeil:
+    case IrOpcode::kNumberFloor:
+    case IrOpcode::kNumberRound:
+    case IrOpcode::kNumberTrunc: {
+      Node* const input = NodeProperties::GetValueInput(node, 0);
+      Type* const input_type = NodeProperties::GetType(input);
+      if (input_type->Is(type_cache_.kIntegerOrMinusZeroOrNaN)) {
+        return Replace(input);
+      }
+      break;
+    }
+    case IrOpcode::kReferenceEqual:
+      return ReduceReferenceEqual(node);
     default:
       break;
+  }
+  return NoChange();
+}
+
+Reduction SimplifiedOperatorReducer::ReduceReferenceEqual(Node* node) {
+  DCHECK_EQ(IrOpcode::kReferenceEqual, node->opcode());
+  Node* const left = NodeProperties::GetValueInput(node, 0);
+  Node* const right = NodeProperties::GetValueInput(node, 1);
+  HeapObjectMatcher match_left(left);
+  HeapObjectMatcher match_right(right);
+  if (match_left.HasValue() && match_right.HasValue()) {
+    if (match_left.Value().is_identical_to(match_right.Value())) {
+      return Replace(jsgraph()->TrueConstant());
+    } else {
+      return Replace(jsgraph()->FalseConstant());
+    }
   }
   return NoChange();
 }

@@ -3,17 +3,14 @@ var common = require('../common');
 var assert = require('assert');
 
 if (!common.hasCrypto) {
-  console.log('1..0 # Skipped: missing crypto');
+  common.skip('missing crypto');
   return;
 }
 var tls = require('tls');
 
 var fs = require('fs');
-var net = require('net');
 
-var common = require('../common');
-
-var buf = new Buffer(10000);
+var buf = Buffer.allocUnsafe(10000);
 var received = 0;
 var ended = 0;
 var maxChunk = 768;
@@ -30,8 +27,8 @@ var server = tls.createServer({
   assert(c.setMaxSendFragment(maxChunk));
 
   c.end(buf);
-}).listen(common.PORT, function() {
-  var c = tls.connect(common.PORT, {
+}).listen(0, function() {
+  var c = tls.connect(this.address().port, {
     rejectUnauthorized: false
   }, function() {
     c.on('data', function(chunk) {

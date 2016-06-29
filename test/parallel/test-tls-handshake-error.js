@@ -4,13 +4,12 @@ var assert = require('assert');
 var common = require('../common');
 
 if (!common.hasCrypto) {
-  console.log('1..0 # Skipped: missing crypto');
+  common.skip('missing crypto');
   return;
 }
 var tls = require('tls');
 
 var fs = require('fs');
-var net = require('net');
 
 var errorCount = 0;
 var closeCount = 0;
@@ -20,9 +19,9 @@ var server = tls.createServer({
   cert: fs.readFileSync(common.fixturesDir + '/keys/agent1-cert.pem'),
   rejectUnauthorized: true
 }, function(c) {
-}).listen(common.PORT, function() {
+}).listen(0, function() {
   var c = tls.connect({
-    port: common.PORT,
+    port: this.address().port,
     ciphers: 'RC4'
   }, function() {
     assert(false, 'should not be called');

@@ -1,13 +1,10 @@
 'use strict';
-var common = require('../common');
+require('../common');
 var assert = require('assert');
 var net = require('net');
 
 var kPoolSize = 40 * 1024;
-var data = '';
-for (var i = 0; i < kPoolSize; ++i) {
-  data += 'あ'; // 3bytes
-}
+var data = 'あ'.repeat(kPoolSize);
 var receivedSize = 0;
 var encoding = 'UTF-8';
 
@@ -21,8 +18,8 @@ var server = net.createServer(function(socket) {
   });
 });
 
-server.listen(common.PORT, function() {
-  var client = net.createConnection(common.PORT);
+server.listen(0, function() {
+  var client = net.createConnection(this.address().port);
   client.on('end', function() {
     server.close();
   });

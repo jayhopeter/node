@@ -3,7 +3,7 @@ var common = require('../common');
 var assert = require('assert');
 
 if (!common.hasCrypto) {
-  console.log('1..0 # Skipped: missing crypto');
+  common.skip('missing crypto');
   return;
 }
 var https = require('https');
@@ -23,13 +23,13 @@ var server = https.createServer(options, function(req, res) {
   res.writeHead(200);
   res.end();
   req.resume();
-}).listen(common.PORT, function() {
+}).listen(0, function() {
   unauthorized();
 });
 
 function unauthorized() {
   var req = https.request({
-    port: common.PORT,
+    port: server.address().port,
     rejectUnauthorized: false
   }, function(res) {
     assert(!req.socket.authorized);
@@ -44,7 +44,7 @@ function unauthorized() {
 
 function rejectUnauthorized() {
   var options = {
-    port: common.PORT
+    port: server.address().port
   };
   options.agent = new https.Agent(options);
   var req = https.request(options, function(res) {
@@ -58,7 +58,7 @@ function rejectUnauthorized() {
 
 function authorized() {
   var options = {
-    port: common.PORT,
+    port: server.address().port,
     ca: [fs.readFileSync(path.join(common.fixturesDir, 'test_cert.pem'))]
   };
   options.agent = new https.Agent(options);

@@ -1,8 +1,7 @@
 'use strict';
-var common = require('../common');
+require('../common');
 var assert = require('assert');
 var zlib = require('zlib');
-var fs = require('fs');
 
 var gzip = zlib.createGzip();
 var gunz = zlib.createUnzip();
@@ -20,7 +19,7 @@ process.on('exit', function() {
   assert.equal(output, input);
 
   // Make sure that the flush flag was set back to normal
-  assert.equal(gzip._flushFlag, zlib.Z_NO_FLUSH);
+  assert.equal(gzip._flushFlag, zlib.constants.Z_NO_FLUSH);
 
   console.log('ok');
 });

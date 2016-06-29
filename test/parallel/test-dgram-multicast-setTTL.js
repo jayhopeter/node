@@ -1,11 +1,11 @@
 'use strict';
-var common = require('../common'),
-    assert = require('assert'),
-    dgram = require('dgram'),
-    thrown = false,
-    socket = dgram.createSocket('udp4');
+require('../common');
+const assert = require('assert');
+const dgram = require('dgram');
+const socket = dgram.createSocket('udp4');
+let thrown = false;
 
-socket.bind(common.PORT);
+socket.bind(0);
 socket.on('listening', function() {
   socket.setMulticastTTL(16);
 

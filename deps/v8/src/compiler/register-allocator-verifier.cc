@@ -32,9 +32,9 @@ void VerifyAllocatedGaps(const Instruction* instr) {
        i <= Instruction::LAST_GAP_POSITION; i++) {
     Instruction::GapPosition inner_pos =
         static_cast<Instruction::GapPosition>(i);
-    auto moves = instr->GetParallelMove(inner_pos);
+    const ParallelMove* moves = instr->GetParallelMove(inner_pos);
     if (moves == nullptr) continue;
-    for (auto move : *moves) {
+    for (const MoveOperands* move : *moves) {
       if (move->IsRedundant()) continue;
       CHECK(move->source().IsAllocated() || move->source().IsConstant());
       CHECK(move->destination().IsAllocated());
@@ -48,7 +48,7 @@ void VerifyAllocatedGaps(const Instruction* instr) {
 void RegisterAllocatorVerifier::VerifyInput(
     const OperandConstraint& constraint) {
   CHECK_NE(kSameAsFirst, constraint.type_);
-  if (constraint.type_ != kImmediate) {
+  if (constraint.type_ != kImmediate && constraint.type_ != kExplicit) {
     CHECK_NE(InstructionOperand::kInvalidVirtualRegister,
              constraint.virtual_register_);
   }
@@ -59,6 +59,7 @@ void RegisterAllocatorVerifier::VerifyTemp(
     const OperandConstraint& constraint) {
   CHECK_NE(kSameAsFirst, constraint.type_);
   CHECK_NE(kImmediate, constraint.type_);
+  CHECK_NE(kExplicit, constraint.type_);
   CHECK_NE(kConstant, constraint.type_);
 }
 
@@ -66,6 +67,7 @@ void RegisterAllocatorVerifier::VerifyTemp(
 void RegisterAllocatorVerifier::VerifyOutput(
     const OperandConstraint& constraint) {
   CHECK_NE(kImmediate, constraint.type_);
+  CHECK_NE(kExplicit, constraint.type_);
   CHECK_NE(InstructionOperand::kInvalidVirtualRegister,
            constraint.virtual_register_);
 }
@@ -79,11 +81,12 @@ RegisterAllocatorVerifier::RegisterAllocatorVerifier(
   // TODO(dcarney): model unique constraints.
   // Construct OperandConstraints for all InstructionOperands, eliminating
   // kSameAsFirst along the way.
-  for (const auto* instr : sequence->instructions()) {
+  for (const Instruction* instr : sequence->instructions()) {
     // All gaps should be totally unallocated at this point.
     VerifyEmptyGaps(instr);
     const size_t operand_count = OperandCount(instr);
-    auto* op_constraints = zone->NewArray<OperandConstraint>(operand_count);
+    OperandConstraint* op_constraints =
+        zone->NewArray<OperandConstraint>(operand_count);
     size_t count = 0;
     for (size_t i = 0; i < instr->InputCount(); ++i, ++count) {
       BuildConstraint(instr->InputAt(i), &op_constraints[count]);
@@ -113,11 +116,12 @@ void RegisterAllocatorVerifier::VerifyAssignment() {
   CHECK(sequence()->instructions().size() == constraints()->size());
   auto instr_it = sequence()->begin();
   for (const auto& instr_constraint : *constraints()) {
-    const auto* instr = instr_constraint.instruction_;
+    const Instruction* instr = instr_constraint.instruction_;
     // All gaps should be totally allocated at this point.
     VerifyAllocatedGaps(instr);
     const size_t operand_count = instr_constraint.operand_constaints_size_;
-    const auto* op_constraints = instr_constraint.operand_constraints_;
+    const OperandConstraint* op_constraints =
+        instr_constraint.operand_constraints_;
     CHECK_EQ(instr, *instr_it);
     CHECK(operand_count == OperandCount(instr));
     size_t count = 0;
@@ -143,15 +147,17 @@ void RegisterAllocatorVerifier::BuildConstraint(const InstructionOperand* op,
     constraint->type_ = kConstant;
     constraint->value_ = ConstantOperand::cast(op)->virtual_register();
     constraint->virtual_register_ = constraint->value_;
+  } else if (op->IsExplicit()) {
+    constraint->type_ = kExplicit;
   } else if (op->IsImmediate()) {
-    auto imm = ImmediateOperand::cast(op);
+    const ImmediateOperand* imm = ImmediateOperand::cast(op);
     int value = imm->type() == ImmediateOperand::INLINE ? imm->inline_value()
                                                         : imm->indexed_value();
     constraint->type_ = kImmediate;
     constraint->value_ = value;
   } else {
     CHECK(op->IsUnallocated());
-    const auto* unallocated = UnallocatedOperand::cast(op);
+    const UnallocatedOperand* unallocated = UnallocatedOperand::cast(op);
     int vreg = unallocated->virtual_register();
     constraint->virtual_register_ = vreg;
     if (unallocated->basic_policy() == UnallocatedOperand::FIXED_SLOT) {
@@ -160,8 +166,6 @@ void RegisterAllocatorVerifier::BuildConstraint(const InstructionOperand* op,
     } else {
       switch (unallocated->extended_policy()) {
         case UnallocatedOperand::ANY:
-          CHECK(false);
-          break;
         case UnallocatedOperand::NONE:
           if (sequence()->IsFloat(vreg)) {
             constraint->type_ = kNoneDouble;
@@ -170,7 +174,12 @@ void RegisterAllocatorVerifier::BuildConstraint(const InstructionOperand* op,
           }
           break;
         case UnallocatedOperand::FIXED_REGISTER:
-          constraint->type_ = kFixedRegister;
+          if (unallocated->HasSecondaryStorage()) {
+            constraint->type_ = kRegisterAndSlot;
+            constraint->spilled_slot_ = unallocated->GetSecondaryStorage();
+          } else {
+            constraint->type_ = kFixedRegister;
+          }
           constraint->value_ = unallocated->fixed_register_index();
           break;
         case UnallocatedOperand::FIXED_DOUBLE_REGISTER:
@@ -206,7 +215,7 @@ void RegisterAllocatorVerifier::CheckConstraint(
       return;
     case kImmediate: {
       CHECK(op->IsImmediate());
-      auto imm = ImmediateOperand::cast(op);
+      const ImmediateOperand* imm = ImmediateOperand::cast(op);
       int value = imm->type() == ImmediateOperand::INLINE
                       ? imm->inline_value()
                       : imm->indexed_value();
@@ -216,20 +225,26 @@ void RegisterAllocatorVerifier::CheckConstraint(
     case kRegister:
       CHECK(op->IsRegister());
       return;
-    case kFixedRegister:
-      CHECK(op->IsRegister());
-      CHECK_EQ(RegisterOperand::cast(op)->index(), constraint->value_);
-      return;
     case kDoubleRegister:
       CHECK(op->IsDoubleRegister());
       return;
+    case kExplicit:
+      CHECK(op->IsExplicit());
+      return;
+    case kFixedRegister:
+    case kRegisterAndSlot:
+      CHECK(op->IsRegister());
+      CHECK_EQ(LocationOperand::cast(op)->GetRegister().code(),
+               constraint->value_);
+      return;
     case kFixedDoubleRegister:
       CHECK(op->IsDoubleRegister());
-      CHECK_EQ(DoubleRegisterOperand::cast(op)->index(), constraint->value_);
+      CHECK_EQ(LocationOperand::cast(op)->GetDoubleRegister().code(),
+               constraint->value_);
       return;
     case kFixedSlot:
       CHECK(op->IsStackSlot());
-      CHECK_EQ(StackSlotOperand::cast(op)->index(), constraint->value_);
+      CHECK_EQ(LocationOperand::cast(op)->index(), constraint->value_);
       return;
     case kSlot:
       CHECK(op->IsStackSlot());
@@ -282,7 +297,7 @@ class PhiMap : public ZoneMap<int, PhiData*>, public ZoneObject {
 struct OperandLess {
   bool operator()(const InstructionOperand* a,
                   const InstructionOperand* b) const {
-    return a->CompareModuloType(*b);
+    return a->CompareCanonicalized(*b);
   }
 };
 
@@ -311,12 +326,12 @@ class OperandMap : public ZoneObject {
       if (this->empty()) return;
       auto it = this->begin();
       OperandLess less;
-      for (const auto& o : other) {
+      for (const std::pair<const InstructionOperand*, MapValue*>& o : other) {
         while (less(it->first, o.first)) {
           this->erase(it++);
           if (it == this->end()) return;
         }
-        if (it->first->EqualsModuloType(*o.first)) {
+        if (it->first->EqualsCanonicalized(*o.first)) {
           ++it;
           if (it == this->end()) return;
         } else {
@@ -333,7 +348,7 @@ class OperandMap : public ZoneObject {
   void RunParallelMoves(Zone* zone, const ParallelMove* moves) {
     // Compute outgoing mappings.
     Map to_insert(zone);
-    for (auto move : *moves) {
+    for (const MoveOperands* move : *moves) {
       if (move->IsEliminated()) continue;
       auto cur = map().find(&move->source());
       CHECK(cur != map().end());
@@ -343,7 +358,7 @@ class OperandMap : public ZoneObject {
       CHECK(res.second);
     }
     // Drop current mappings.
-    for (auto move : *moves) {
+    for (const MoveOperands* move : *moves) {
       if (move->IsEliminated()) continue;
       auto cur = map().find(&move->destination());
       if (cur != map().end()) map().erase(cur);
@@ -355,8 +370,9 @@ class OperandMap : public ZoneObject {
   void RunGaps(Zone* zone, const Instruction* instr) {
     for (int i = Instruction::FIRST_GAP_POSITION;
          i <= Instruction::LAST_GAP_POSITION; i++) {
-      auto inner_pos = static_cast<Instruction::GapPosition>(i);
-      auto move = instr->GetParallelMove(inner_pos);
+      Instruction::GapPosition inner_pos =
+          static_cast<Instruction::GapPosition>(i);
+      const ParallelMove* move = instr->GetParallelMove(inner_pos);
       if (move == nullptr) continue;
       RunParallelMoves(zone, move);
     }
@@ -370,7 +386,7 @@ class OperandMap : public ZoneObject {
   void DropRegisters(const RegisterConfiguration* config) {
     // TODO(dcarney): sort map by kind and drop range.
     for (auto it = map().begin(); it != map().end();) {
-      auto op = it->first;
+      const InstructionOperand* op = it->first;
       if (op->IsRegister() || op->IsDoubleRegister()) {
         map().erase(it++);
       } else {
@@ -379,17 +395,19 @@ class OperandMap : public ZoneObject {
     }
   }
 
-  void Define(Zone* zone, const InstructionOperand* op, int virtual_register) {
-    auto value = new (zone) MapValue();
+  MapValue* Define(Zone* zone, const InstructionOperand* op,
+                   int virtual_register) {
+    MapValue* value = new (zone) MapValue();
     value->define_vreg = virtual_register;
     auto res = map().insert(std::make_pair(op, value));
     if (!res.second) res.first->second = value;
+    return value;
   }
 
   void Use(const InstructionOperand* op, int use_vreg, bool initial_pass) {
     auto it = map().find(op);
     CHECK(it != map().end());
-    auto v = it->second;
+    MapValue* v = it->second;
     if (v->define_vreg != kInvalidVreg) {
       CHECK_EQ(v->define_vreg, use_vreg);
     }
@@ -430,7 +448,7 @@ class OperandMap : public ZoneObject {
               bool initial_pass) {
     auto it = map().find(op);
     CHECK(it != map().end());
-    auto v = it->second;
+    MapValue* v = it->second;
     int use_vreg = phi->virtual_register;
     // Phis are not defined.
     CHECK_EQ(kInvalidVreg, v->define_vreg);
@@ -458,7 +476,7 @@ class OperandMap : public ZoneObject {
         CHECK(v->define_vreg == phi->first_pred_vreg);
       } else if (v->use_vreg != phi->first_pred_vreg) {
         // Walk the phi chain, hunting for a matching phi use.
-        auto p = phi;
+        const PhiData* p = phi;
         for (; p != nullptr; p = p->first_pred_phi) {
           if (p->virtual_register == v->use_vreg) break;
         }
@@ -514,12 +532,12 @@ class RegisterAllocatorVerifier::BlockMaps {
     BlockIds block_ids((BlockIds::key_compare()),
                        zone_allocator<size_t>(zone()));
     // First ensure that incoming contains only keys in all predecessors.
-    for (auto block : sequence()->instruction_blocks()) {
+    for (const InstructionBlock* block : sequence()->instruction_blocks()) {
       size_t index = block->rpo_number().ToSize();
       block_ids.insert(index);
-      auto& succ_map = incoming_maps_[index]->map();
+      OperandMap::Map& succ_map = incoming_maps_[index]->map();
       for (size_t i = 0; i < block->PredecessorCount(); ++i) {
-        auto pred_rpo = block->predecessors()[i];
+        RpoNumber pred_rpo = block->predecessors()[i];
         succ_map.Intersect(outgoing_maps_[pred_rpo.ToSize()]->map());
       }
     }
@@ -530,8 +548,9 @@ class RegisterAllocatorVerifier::BlockMaps {
       const size_t succ_index = *block_id_it;
       block_ids.erase(block_id_it);
       // Propagate uses back to their definition blocks using succ_vreg.
-      auto block = sequence()->instruction_blocks()[succ_index];
-      auto& succ_map = incoming_maps_[succ_index]->map();
+      const InstructionBlock* block =
+          sequence()->instruction_blocks()[succ_index];
+      OperandMap::Map& succ_map = incoming_maps_[succ_index]->map();
       for (size_t i = 0; i < block->PredecessorCount(); ++i) {
         for (auto& succ_val : succ_map) {
           // An incoming map contains no defines.
@@ -546,15 +565,15 @@ class RegisterAllocatorVerifier::BlockMaps {
           if (succ_vreg == kInvalidVreg) continue;
           // May need to transition phi.
           if (IsPhi(succ_vreg)) {
-            auto phi = GetPhi(succ_vreg);
+            const PhiData* phi = GetPhi(succ_vreg);
             if (phi->definition_rpo.ToSize() == succ_index) {
               // phi definition block, transition to pred value.
               succ_vreg = phi->operands[i];
             }
           }
           // Push succ_vreg up to all predecessors.
-          auto pred_rpo = block->predecessors()[i];
-          auto& pred_map = outgoing_maps_[pred_rpo.ToSize()]->map();
+          RpoNumber pred_rpo = block->predecessors()[i];
+          OperandMap::Map& pred_map = outgoing_maps_[pred_rpo.ToSize()]->map();
           auto& pred_val = *pred_map.find(succ_val.first);
           if (pred_val.second->use_vreg != kInvalidVreg) {
             CHECK_EQ(succ_vreg, pred_val.second->use_vreg);
@@ -563,7 +582,26 @@ class RegisterAllocatorVerifier::BlockMaps {
             CHECK_EQ(succ_vreg, pred_val.second->define_vreg);
           }
           if (pred_val.second->succ_vreg != kInvalidVreg) {
-            CHECK_EQ(succ_vreg, pred_val.second->succ_vreg);
+            if (succ_vreg != pred_val.second->succ_vreg) {
+              // When a block introduces 2 identical phis A and B, and both are
+              // operands to other phis C and D, and we optimized the moves
+              // defining A or B such that they now appear in the block defining
+              // A and B, the back propagation will get confused when visiting
+              // upwards from C and D. The operand in the block defining A and B
+              // will be attributed to C (or D, depending which of these is
+              // visited first).
+              CHECK(IsPhi(pred_val.second->succ_vreg));
+              CHECK(IsPhi(succ_vreg));
+              const PhiData* current_phi = GetPhi(succ_vreg);
+              const PhiData* assigned_phi = GetPhi(pred_val.second->succ_vreg);
+              CHECK_EQ(current_phi->operands.size(),
+                       assigned_phi->operands.size());
+              CHECK_EQ(current_phi->definition_rpo,
+                       assigned_phi->definition_rpo);
+              for (size_t i = 0; i < current_phi->operands.size(); ++i) {
+                CHECK_EQ(current_phi->operands[i], assigned_phi->operands[i]);
+              }
+            }
           } else {
             pred_val.second->succ_vreg = succ_vreg;
             block_ids.insert(pred_rpo.ToSize());
@@ -572,7 +610,7 @@ class RegisterAllocatorVerifier::BlockMaps {
       }
     }
     // Clear uses and back links for second pass.
-    for (auto operand_map : incoming_maps_) {
+    for (OperandMap* operand_map : incoming_maps_) {
       for (auto& succ_val : operand_map->map()) {
         succ_val.second->incoming = nullptr;
         succ_val.second->use_vreg = kInvalidVreg;
@@ -582,18 +620,19 @@ class RegisterAllocatorVerifier::BlockMaps {
 
  private:
   OperandMap* InitializeFromFirstPredecessor(size_t block_index) {
-    auto to_init = outgoing_maps_[block_index];
+    OperandMap* to_init = outgoing_maps_[block_index];
     CHECK(to_init->map().empty());
-    auto block = sequence()->instruction_blocks()[block_index];
+    const InstructionBlock* block =
+        sequence()->instruction_blocks()[block_index];
     if (block->predecessors().empty()) return to_init;
     size_t predecessor_index = block->predecessors()[0].ToSize();
     // Ensure not a backedge.
     CHECK(predecessor_index < block->rpo_number().ToSize());
-    auto incoming = outgoing_maps_[predecessor_index];
+    OperandMap* incoming = outgoing_maps_[predecessor_index];
     // Copy map and replace values.
     to_init->map() = incoming->map();
     for (auto& it : to_init->map()) {
-      auto incoming = it.second;
+      OperandMap::MapValue* incoming = it.second;
       it.second = new (zone()) OperandMap::MapValue();
       it.second->incoming = incoming;
     }
@@ -619,8 +658,9 @@ class RegisterAllocatorVerifier::BlockMaps {
   void InitializePhis() {
     const size_t block_count = sequence()->instruction_blocks().size();
     for (size_t block_index = 0; block_index < block_count; ++block_index) {
-      const auto block = sequence()->instruction_blocks()[block_index];
-      for (auto phi : block->phis()) {
+      const InstructionBlock* block =
+          sequence()->instruction_blocks()[block_index];
+      for (const PhiInstruction* phi : block->phis()) {
         int first_pred_vreg = phi->operands()[0];
         const PhiData* first_pred_phi = nullptr;
         if (IsPhi(first_pred_vreg)) {
@@ -628,7 +668,7 @@ class RegisterAllocatorVerifier::BlockMaps {
           first_pred_vreg = first_pred_phi->first_pred_vreg;
         }
         CHECK(!IsPhi(first_pred_vreg));
-        auto phi_data = new (zone()) PhiData(
+        PhiData* phi_data = new (zone()) PhiData(
             block->rpo_number(), phi, first_pred_vreg, first_pred_phi, zone());
         auto res =
             phi_map_.insert(std::make_pair(phi->virtual_register(), phi_data));
@@ -666,23 +706,29 @@ void RegisterAllocatorVerifier::VerifyGapMoves(BlockMaps* block_maps,
                                                bool initial_pass) {
   const size_t block_count = sequence()->instruction_blocks().size();
   for (size_t block_index = 0; block_index < block_count; ++block_index) {
-    auto current = block_maps->InitializeIncoming(block_index, initial_pass);
-    const auto block = sequence()->instruction_blocks()[block_index];
+    OperandMap* current =
+        block_maps->InitializeIncoming(block_index, initial_pass);
+    const InstructionBlock* block =
+        sequence()->instruction_blocks()[block_index];
     for (int instr_index = block->code_start(); instr_index < block->code_end();
          ++instr_index) {
-      const auto& instr_constraint = constraints_[instr_index];
-      const auto instr = instr_constraint.instruction_;
+      const InstructionConstraint& instr_constraint = constraints_[instr_index];
+      const Instruction* instr = instr_constraint.instruction_;
       current->RunGaps(zone(), instr);
-      const auto op_constraints = instr_constraint.operand_constraints_;
+      const OperandConstraint* op_constraints =
+          instr_constraint.operand_constraints_;
       size_t count = 0;
       for (size_t i = 0; i < instr->InputCount(); ++i, ++count) {
-        if (op_constraints[count].type_ == kImmediate) continue;
+        if (op_constraints[count].type_ == kImmediate ||
+            op_constraints[count].type_ == kExplicit) {
+          continue;
+        }
         int virtual_register = op_constraints[count].virtual_register_;
-        auto op = instr->InputAt(i);
+        const InstructionOperand* op = instr->InputAt(i);
         if (!block_maps->IsPhi(virtual_register)) {
           current->Use(op, virtual_register, initial_pass);
         } else {
-          auto phi = block_maps->GetPhi(virtual_register);
+          const PhiData* phi = block_maps->GetPhi(virtual_register);
           current->UsePhi(op, phi, initial_pass);
         }
       }
@@ -694,7 +740,20 @@ void RegisterAllocatorVerifier::VerifyGapMoves(BlockMaps* block_maps,
       }
       for (size_t i = 0; i < instr->OutputCount(); ++i, ++count) {
         int virtual_register = op_constraints[count].virtual_register_;
-        current->Define(zone(), instr->OutputAt(i), virtual_register);
+        OperandMap::MapValue* value =
+            current->Define(zone(), instr->OutputAt(i), virtual_register);
+        if (op_constraints[count].type_ == kRegisterAndSlot) {
+          const AllocatedOperand* reg_op =
+              AllocatedOperand::cast(instr->OutputAt(i));
+          MachineRepresentation rep = reg_op->representation();
+          const AllocatedOperand* stack_op = AllocatedOperand::New(
+              zone(), LocationOperand::LocationKind::STACK_SLOT, rep,
+              op_constraints[i].spilled_slot_);
+          auto insert_result =
+              current->map().insert(std::make_pair(stack_op, value));
+          DCHECK(insert_result.second);
+          USE(insert_result);
+        }
       }
     }
   }

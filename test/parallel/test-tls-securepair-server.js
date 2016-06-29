@@ -3,7 +3,7 @@ var common = require('../common');
 var assert = require('assert');
 
 if (!common.hasCrypto) {
-  console.log('1..0 # Skipped: missing crypto');
+  common.skip('missing crypto');
   return;
 }
 var tls = require('tls');
@@ -91,10 +91,10 @@ var sentWorld = false;
 var gotWorld = false;
 var opensslExitCode = -1;
 
-server.listen(common.PORT, function() {
+server.listen(0, function() {
   // To test use: openssl s_client -connect localhost:8000
 
-  var args = ['s_client', '-connect', '127.0.0.1:' + common.PORT];
+  var args = ['s_client', '-connect', `127.0.0.1:${this.address().port}`];
 
   // for the performance and stability issue in s_client on Windows
   if (common.isWindows)

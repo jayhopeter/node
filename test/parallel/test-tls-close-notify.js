@@ -3,13 +3,12 @@ var assert = require('assert');
 var common = require('../common');
 
 if (!common.hasCrypto) {
-  console.log('1..0 # Skipped: missing crypto');
+  common.skip('missing crypto');
   return;
 }
 var tls = require('tls');
 
 var fs = require('fs');
-var net = require('net');
 
 var ended = 0;
 
@@ -20,8 +19,8 @@ var server = tls.createServer({
   // Send close-notify without shutting down TCP socket
   if (c._handle.shutdownSSL() !== 1)
     c._handle.shutdownSSL();
-}).listen(common.PORT, function() {
-  var c = tls.connect(common.PORT, {
+}).listen(0, function() {
+  var c = tls.connect(this.address().port, {
     rejectUnauthorized: false
   }, function() {
     // Ensure that we receive 'end' event anyway

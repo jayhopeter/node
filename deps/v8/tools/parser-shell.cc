@@ -36,12 +36,12 @@
 #include "include/libplatform/libplatform.h"
 #include "src/api.h"
 #include "src/compiler.h"
-#include "src/scanner-character-streams.h"
+#include "src/parsing/scanner-character-streams.h"
+#include "src/parsing/parser.h"
+#include "src/parsing/preparse-data-format.h"
+#include "src/parsing/preparse-data.h"
+#include "src/parsing/preparser.h"
 #include "tools/shell-utils.h"
-#include "src/parser.h"
-#include "src/preparse-data-format.h"
-#include "src/preparse-data.h"
-#include "src/preparser.h"
 
 using namespace v8::internal;
 
@@ -102,7 +102,7 @@ std::pair<v8::base::TimeDelta, v8::base::TimeDelta> RunBaselineParser(
   i::ScriptData* cached_data_impl = NULL;
   // First round of parsing (produce data to cache).
   {
-    Zone zone;
+    Zone zone(reinterpret_cast<i::Isolate*>(isolate)->allocator());
     ParseInfo info(&zone, script);
     info.set_global();
     info.set_cached_data(&cached_data_impl);
@@ -120,7 +120,7 @@ std::pair<v8::base::TimeDelta, v8::base::TimeDelta> RunBaselineParser(
   }
   // Second round of parsing (consume cached data).
   {
-    Zone zone;
+    Zone zone(reinterpret_cast<i::Isolate*>(isolate)->allocator());
     ParseInfo info(&zone, script);
     info.set_global();
     info.set_cached_data(&cached_data_impl);

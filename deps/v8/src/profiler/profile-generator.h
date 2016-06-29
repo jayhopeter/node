@@ -10,12 +10,10 @@
 #include "src/allocation.h"
 #include "src/compiler.h"
 #include "src/hashmap.h"
-#include "src/strings-storage.h"
+#include "src/profiler/strings-storage.h"
 
 namespace v8 {
 namespace internal {
-
-struct OffsetRange;
 
 // Provides a mapping from the offsets within generated code to
 // the source line.
@@ -83,10 +81,6 @@ class CodeEntry {
 
   void FillFunctionInfo(SharedFunctionInfo* shared);
 
-  List<OffsetRange>* no_frame_ranges() const { return no_frame_ranges_; }
-  void set_no_frame_ranges(List<OffsetRange>* ranges) {
-    no_frame_ranges_ = ranges;
-  }
   void set_inlined_function_infos(
       const std::vector<InlinedFunctionInfo>& infos) {
     inlined_function_infos_ = infos;
@@ -105,7 +99,11 @@ class CodeEntry {
 
   int GetSourceLine(int pc_offset) const;
 
+  void AddInlineStack(int pc_offset, std::vector<CodeEntry*>& inline_stack);
+  const std::vector<CodeEntry*>* GetInlineStack(int pc_offset) const;
+
   Address instruction_start() const { return instruction_start_; }
+  Logger::LogEventsAndTags tag() const { return TagField::decode(bit_field_); }
 
   static const char* const kEmptyNamePrefix;
   static const char* const kEmptyResourceName;
@@ -115,7 +113,6 @@ class CodeEntry {
  private:
   class TagField : public BitField<Logger::LogEventsAndTags, 0, 8> {};
   class BuiltinIdField : public BitField<Builtins::Name, 8, 8> {};
-  Logger::LogEventsAndTags tag() const { return TagField::decode(bit_field_); }
 
   uint32_t bit_field_;
   const char* name_prefix_;
@@ -125,13 +122,14 @@ class CodeEntry {
   int column_number_;
   int script_id_;
   int position_;
-  List<OffsetRange>* no_frame_ranges_;
   const char* bailout_reason_;
   const char* deopt_reason_;
   SourcePosition deopt_position_;
   size_t pc_offset_;
   JITLineInfoTable* line_info_;
   Address instruction_start_;
+  // Should be an unordered_map, but it doesn't currently work on Win & MacOS.
+  std::map<int, std::vector<CodeEntry*>> inline_locations_;
 
   std::vector<InlinedFunctionInfo> inlined_function_infos_;
 
@@ -163,6 +161,7 @@ class ProfileNode {
   const std::vector<CpuProfileDeoptInfo>& deopt_infos() const {
     return deopt_infos_;
   }
+  Isolate* isolate() const;
 
   void Print(int indent);
 
@@ -193,12 +192,13 @@ class ProfileNode {
 
 class ProfileTree {
  public:
-  ProfileTree();
+  explicit ProfileTree(Isolate* isolate);
   ~ProfileTree();
 
   ProfileNode* AddPathFromEnd(
-      const Vector<CodeEntry*>& path,
-      int src_line = v8::CpuProfileNode::kNoLineNumberInfo);
+      const std::vector<CodeEntry*>& path,
+      int src_line = v8::CpuProfileNode::kNoLineNumberInfo,
+      bool update_stats = true);
   ProfileNode* root() const { return root_; }
   unsigned next_node_id() { return next_node_id_++; }
   unsigned GetFunctionId(const ProfileNode* node);
@@ -207,6 +207,8 @@ class ProfileTree {
     root_->Print(0);
   }
 
+  Isolate* isolate() const { return isolate_; }
+
  private:
   template <typename Callback>
   void TraverseDepthFirst(Callback* callback);
@@ -214,6 +216,7 @@ class ProfileTree {
   CodeEntry root_entry_;
   unsigned next_node_id_;
   ProfileNode* root_;
+  Isolate* isolate_;
 
   unsigned next_function_id_;
   HashMap function_ids_;
@@ -224,11 +227,11 @@ class ProfileTree {
 
 class CpuProfile {
  public:
-  CpuProfile(const char* title, bool record_samples);
+  CpuProfile(Isolate* isolate, const char* title, bool record_samples);
 
   // Add pc -> ... -> main() call path to the profile.
-  void AddPath(base::TimeTicks timestamp, const Vector<CodeEntry*>& path,
-               int src_line);
+  void AddPath(base::TimeTicks timestamp, const std::vector<CodeEntry*>& path,
+               int src_line, bool update_stats);
   void CalculateTotalTicksAndSamplingRate();
 
   const char* title() const { return title_; }
@@ -336,7 +339,8 @@ class CpuProfilesCollection {
 
   // Called from profile generator thread.
   void AddPathToCurrentProfiles(base::TimeTicks timestamp,
-                                const Vector<CodeEntry*>& path, int src_line);
+                                const std::vector<CodeEntry*>& path,
+                                int src_line, bool update_stats);
 
   // Limits the number of profiles that can be simultaneously collected.
   static const int kMaxSimultaneousProfiles = 100;
@@ -345,6 +349,8 @@ class CpuProfilesCollection {
   StringsStorage function_and_resource_names_;
   List<CodeEntry*> code_entries_;
   List<CpuProfile*> finished_profiles_;
+
+  Isolate* isolate_;
 
   // Accessed by VM thread and profile generator thread.
   List<CpuProfile*> current_profiles_;
@@ -383,6 +389,7 @@ class ProfileGenerator {
 };
 
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif  // V8_PROFILER_PROFILE_GENERATOR_H_

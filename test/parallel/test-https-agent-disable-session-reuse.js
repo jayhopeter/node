@@ -3,14 +3,13 @@ const common = require('../common');
 const assert = require('assert');
 
 if (!common.hasCrypto) {
-  console.log('1..0 # Skipped: missing crypto');
+  common.skip('missing crypto');
   return;
 }
 
 const TOTAL_REQS = 2;
 
 const https = require('https');
-const crypto = require('crypto');
 
 const fs = require('fs');
 
@@ -29,12 +28,12 @@ const agent = new https.Agent({
 const server = https.createServer(options, function(req, res) {
   serverRequests++;
   res.end('ok');
-}).listen(common.PORT, function() {
+}).listen(0, function() {
   var waiting = TOTAL_REQS;
   function request() {
     const options = {
       agent: agent,
-      port: common.PORT,
+      port: server.address().port,
       rejectUnauthorized: false
     };
 

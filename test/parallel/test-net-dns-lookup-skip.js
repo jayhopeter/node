@@ -1,6 +1,5 @@
 'use strict';
 var common = require('../common');
-var assert = require('assert');
 var net = require('net');
 
 function check(addressType) {
@@ -10,8 +9,8 @@ function check(addressType) {
   });
 
   var address = addressType === 4 ? '127.0.0.1' : '::1';
-  server.listen(common.PORT, address, function() {
-    net.connect(common.PORT, address).on('lookup', common.fail);
+  server.listen(0, address, function() {
+    net.connect(this.address().port, address).on('lookup', common.fail);
   });
 }
 

@@ -43,6 +43,10 @@ class InstructionOperandConverter {
     return ToConstant(instr_->InputAt(index)).ToInt32();
   }
 
+  int64_t InputInt64(size_t index) {
+    return ToConstant(instr_->InputAt(index)).ToInt64();
+  }
+
   int8_t InputInt8(size_t index) {
     return static_cast<int8_t>(InputInt32(index));
   }
@@ -96,12 +100,11 @@ class InstructionOperandConverter {
   }
 
   Register ToRegister(InstructionOperand* op) {
-    return Register::FromAllocationIndex(RegisterOperand::cast(op)->index());
+    return LocationOperand::cast(op)->GetRegister();
   }
 
   DoubleRegister ToDoubleRegister(InstructionOperand* op) {
-    return DoubleRegister::FromAllocationIndex(
-        DoubleRegisterOperand::cast(op)->index());
+    return LocationOperand::cast(op)->GetDoubleRegister();
   }
 
   Constant ToConstant(InstructionOperand* op) {
@@ -125,6 +128,9 @@ class InstructionOperandConverter {
   }
 
   Frame* frame() const { return gen_->frame(); }
+  FrameAccessState* frame_access_state() const {
+    return gen_->frame_access_state();
+  }
   Isolate* isolate() const { return gen_->isolate(); }
   Linkage* linkage() const { return gen_->linkage(); }
 
@@ -133,6 +139,19 @@ class InstructionOperandConverter {
   Instruction* instr_;
 };
 
+// Eager deoptimization exit.
+class DeoptimizationExit : public ZoneObject {
+ public:
+  explicit DeoptimizationExit(int deoptimization_id)
+      : deoptimization_id_(deoptimization_id) {}
+
+  int deoptimization_id() const { return deoptimization_id_; }
+  Label* label() { return &label_; }
+
+ private:
+  int const deoptimization_id_;
+  Label label_;
+};
 
 // Generator for out-of-line code that is emitted after the main code is done.
 class OutOfLineCode : public ZoneObject {
@@ -144,12 +163,15 @@ class OutOfLineCode : public ZoneObject {
 
   Label* entry() { return &entry_; }
   Label* exit() { return &exit_; }
+  Frame* frame() const { return frame_; }
+  Isolate* isolate() const { return masm()->isolate(); }
   MacroAssembler* masm() const { return masm_; }
   OutOfLineCode* next() const { return next_; }
 
  private:
   Label entry_;
   Label exit_;
+  Frame* const frame_;
   MacroAssembler* const masm_;
   OutOfLineCode* const next_;
 };

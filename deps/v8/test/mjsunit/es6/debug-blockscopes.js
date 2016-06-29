@@ -525,15 +525,12 @@ function shadowing_1() {
   {
     let i = 5;
     debugger;
-    assertEqualsUnlessOptimized(27, i, shadowing_1);
   }
   assertEquals(0, i);
-  debugger;
-  assertEqualsUnlessOptimized(27, i, shadowing_1);
 }
 
 listener_delegate = function (exec_state) {
-  exec_state.frame(0).evaluate("i = 27");
+  assertEqualsUnlessOptimized(5, exec_state.frame(0).evaluate("i").value());
 }
 shadowing_1();
 EndTest();
@@ -546,13 +543,12 @@ function shadowing_2() {
   {
     let j = 5;
     debugger;
-    assertEqualsUnlessOptimized(27, j, shadowing_2);
   }
-  assertEqualsUnlessOptimized(0, i, shadowing_2);
 }
 
 listener_delegate = function (exec_state) {
-  exec_state.frame(0).evaluate("j = 27");
+  assertEqualsUnlessOptimized(0, exec_state.frame(0).evaluate("i").value());
+  assertEqualsUnlessOptimized(5, exec_state.frame(0).evaluate("j").value());
 }
 shadowing_2();
 EndTest();

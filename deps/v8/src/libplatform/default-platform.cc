@@ -29,9 +29,7 @@ bool PumpMessageLoop(v8::Platform* platform, v8::Isolate* isolate) {
   return reinterpret_cast<DefaultPlatform*>(platform)->PumpMessageLoop(isolate);
 }
 
-
-const int DefaultPlatform::kMaxThreadPoolSize = 4;
-
+const int DefaultPlatform::kMaxThreadPoolSize = 8;
 
 DefaultPlatform::DefaultPlatform()
     : initialized_(false), thread_pool_size_(0) {}
@@ -66,7 +64,7 @@ void DefaultPlatform::SetThreadPoolSize(int thread_pool_size) {
   base::LockGuard<base::Mutex> guard(&lock_);
   DCHECK(thread_pool_size >= 0);
   if (thread_pool_size < 1) {
-    thread_pool_size = base::SysInfo::NumberOfProcessors();
+    thread_pool_size = base::SysInfo::NumberOfProcessors() - 1;
   }
   thread_pool_size_ =
       std::max(std::min(thread_pool_size, kMaxThreadPoolSize), 1);
@@ -168,4 +166,37 @@ double DefaultPlatform::MonotonicallyIncreasingTime() {
   return base::TimeTicks::HighResolutionNow().ToInternalValue() /
          static_cast<double>(base::Time::kMicrosecondsPerSecond);
 }
-} }  // namespace v8::platform
+
+
+uint64_t DefaultPlatform::AddTraceEvent(
+    char phase, const uint8_t* category_enabled_flag, const char* name,
+    uint64_t id, uint64_t bind_id, int num_args,
+    const char** arg_names, const uint8_t* arg_types,
+    const uint64_t* arg_values, unsigned int flags) {
+  return 0;
+}
+
+
+void DefaultPlatform::UpdateTraceEventDuration(
+    const uint8_t* category_enabled_flag, const char* name, uint64_t handle) {}
+
+
+const uint8_t* DefaultPlatform::GetCategoryGroupEnabled(const char* name) {
+  static uint8_t no = 0;
+  return &no;
+}
+
+
+const char* DefaultPlatform::GetCategoryGroupName(
+    const uint8_t* category_enabled_flag) {
+  static const char dummy[] = "dummy";
+  return dummy;
+}
+
+
+size_t DefaultPlatform::NumberOfAvailableBackgroundThreads() {
+  return static_cast<size_t>(thread_pool_size_);
+}
+
+}  // namespace platform
+}  // namespace v8

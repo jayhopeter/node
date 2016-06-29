@@ -1,7 +1,9 @@
+// Flags: --expose_internals
 'use strict';
+require('../common');
 var assert = require('assert');
-var common = require('../common');
 var fromList = require('_stream_readable')._fromList;
+var BufferList = require('internal/streams/BufferList');
 
 // tiny node-tap lookalike.
 var tests = [];
@@ -30,6 +32,13 @@ function run() {
   });
 }
 
+function bufferListFromArray(arr) {
+  const bl = new BufferList();
+  for (var i = 0; i < arr.length; ++i)
+    bl.push(arr[i]);
+  return bl;
+}
+
 // ensure all tests have run
 process.on('exit', function() {
   assert.equal(count, 0);
@@ -39,12 +48,11 @@ process.nextTick(run);
 
 
 test('buffers', function(t) {
-  // have a length
-  var len = 16;
-  var list = [ new Buffer('foog'),
-               new Buffer('bark'),
-               new Buffer('bazy'),
-               new Buffer('kuel') ];
+  var list = [ Buffer.from('foog'),
+               Buffer.from('bark'),
+               Buffer.from('bazy'),
+               Buffer.from('kuel') ];
+  list = bufferListFromArray(list);
 
   // read more than the first element.
   var ret = fromList(6, { buffer: list, length: 16 });
@@ -63,18 +71,17 @@ test('buffers', function(t) {
   t.equal(ret.toString(), 'zykuel');
 
   // all consumed.
-  t.same(list, []);
+  t.same(list, new BufferList());
 
   t.end();
 });
 
 test('strings', function(t) {
-  // have a length
-  var len = 16;
   var list = [ 'foog',
                'bark',
                'bazy',
                'kuel' ];
+  list = bufferListFromArray(list);
 
   // read more than the first element.
   var ret = fromList(6, { buffer: list, length: 16, decoder: true });
@@ -93,7 +100,7 @@ test('strings', function(t) {
   t.equal(ret, 'zykuel');
 
   // all consumed.
-  t.same(list, []);
+  t.same(list, new BufferList());
 
   t.end();
 });

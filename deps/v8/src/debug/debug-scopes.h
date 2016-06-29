@@ -30,10 +30,16 @@ class ScopeIterator {
 
   static const int kScopeDetailsTypeIndex = 0;
   static const int kScopeDetailsObjectIndex = 1;
-  static const int kScopeDetailsSize = 2;
+  static const int kScopeDetailsNameIndex = 2;
+  static const int kScopeDetailsStartPositionIndex = 3;
+  static const int kScopeDetailsEndPositionIndex = 4;
+  static const int kScopeDetailsFunctionIndex = 5;
+  static const int kScopeDetailsSize = 6;
+
+  enum Option { DEFAULT, IGNORE_NESTED_SCOPES, COLLECT_NON_LOCALS };
 
   ScopeIterator(Isolate* isolate, FrameInspector* frame_inspector,
-                bool ignore_nested_scopes = false);
+                Option options = DEFAULT);
 
   ScopeIterator(Isolate* isolate, Handle<JSFunction> function);
 
@@ -67,16 +73,28 @@ class ScopeIterator {
   // be an actual context.
   Handle<Context> CurrentContext();
 
+  // Populate the set with collected non-local variable names.
+  Handle<StringSet> GetNonLocals();
+
 #ifdef DEBUG
   // Debug print of the content of the current scope.
   void DebugPrint();
 #endif
 
  private:
+  struct ExtendedScopeInfo {
+    ExtendedScopeInfo(Handle<ScopeInfo> info, int start, int end)
+        : scope_info(info), start_position(start), end_position(end) {}
+    Handle<ScopeInfo> scope_info;
+    int start_position;
+    int end_position;
+  };
+
   Isolate* isolate_;
   FrameInspector* const frame_inspector_;
   Handle<Context> context_;
-  List<Handle<ScopeInfo> > nested_scope_chain_;
+  List<ExtendedScopeInfo> nested_scope_chain_;
+  Handle<StringSet> non_locals_;
   bool seen_script_scope_;
   bool failed_;
 
@@ -85,11 +103,14 @@ class ScopeIterator {
   }
 
   inline Handle<JSFunction> GetFunction() {
-    return Handle<JSFunction>(
-        JSFunction::cast(frame_inspector_->GetFunction()));
+    return Handle<JSFunction>::cast(frame_inspector_->GetFunction());
   }
 
-  void RetrieveScopeChain(Scope* scope, Handle<SharedFunctionInfo> shared_info);
+  void RetrieveScopeChain(Scope* scope);
+
+  void CollectNonLocals(Scope* scope);
+
+  void UnwrapEvaluationContext();
 
   MUST_USE_RESULT MaybeHandle<JSObject> MaterializeScriptScope();
   MUST_USE_RESULT MaybeHandle<JSObject> MaterializeLocalScope();
@@ -97,6 +118,7 @@ class ScopeIterator {
   Handle<JSObject> MaterializeClosure();
   Handle<JSObject> MaterializeCatchScope();
   Handle<JSObject> MaterializeBlockScope();
+  Handle<JSObject> WithContextExtension();
 
   bool SetLocalVariableValue(Handle<String> variable_name,
                              Handle<Object> new_value);
@@ -118,7 +140,14 @@ class ScopeIterator {
                                       Handle<JSObject> scope_object);
   bool CopyContextExtensionToScopeObject(Handle<JSObject> extension,
                                          Handle<JSObject> scope_object,
-                                         JSReceiver::KeyCollectionType type);
+                                         KeyCollectionType type);
+
+  // Get the chain of nested scopes within this scope for the source statement
+  // position. The scopes will be added to the list from the outermost scope to
+  // the innermost scope. Only nested block, catch or with scopes are tracked
+  // and will be returned, but no inner function scopes.
+  void GetNestedScopeChain(Isolate* isolate, Scope* scope,
+                           int statement_position);
 
   DISALLOW_IMPLICIT_CONSTRUCTORS(ScopeIterator);
 };

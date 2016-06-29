@@ -1,6 +1,8 @@
 #ifndef SRC_UTIL_INL_H_
 #define SRC_UTIL_INL_H_
 
+#if defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
+
 #include "util.h"
 
 namespace node {
@@ -157,8 +159,8 @@ inline v8::Local<v8::String> OneByteString(v8::Isolate* isolate,
                                            int length) {
   return v8::String::NewFromOneByte(isolate,
                                     reinterpret_cast<const uint8_t*>(data),
-                                    v8::String::kNormalString,
-                                    length);
+                                    v8::NewStringType::kNormal,
+                                    length).ToLocalChecked();
 }
 
 inline v8::Local<v8::String> OneByteString(v8::Isolate* isolate,
@@ -166,8 +168,8 @@ inline v8::Local<v8::String> OneByteString(v8::Isolate* isolate,
                                            int length) {
   return v8::String::NewFromOneByte(isolate,
                                     reinterpret_cast<const uint8_t*>(data),
-                                    v8::String::kNormalString,
-                                    length);
+                                    v8::NewStringType::kNormal,
+                                    length).ToLocalChecked();
 }
 
 inline v8::Local<v8::String> OneByteString(v8::Isolate* isolate,
@@ -175,8 +177,8 @@ inline v8::Local<v8::String> OneByteString(v8::Isolate* isolate,
                                            int length) {
   return v8::String::NewFromOneByte(isolate,
                                     reinterpret_cast<const uint8_t*>(data),
-                                    v8::String::kNormalString,
-                                    length);
+                                    v8::NewStringType::kNormal,
+                                    length).ToLocalChecked();
 }
 
 template <typename TypeName>
@@ -203,8 +205,32 @@ void SwapBytes(uint16_t* dst, const uint16_t* src, size_t buflen) {
     dst[i] = (src[i] << 8) | (src[i] >> 8);
 }
 
+char ToLower(char c) {
+  return c >= 'A' && c <= 'Z' ? c + ('a' - 'A') : c;
+}
 
+bool StringEqualNoCase(const char* a, const char* b) {
+  do {
+    if (*a == '\0')
+      return *b == '\0';
+    if (*b == '\0')
+      return *a == '\0';
+  } while (ToLower(*a++) == ToLower(*b++));
+  return false;
+}
+
+bool StringEqualNoCaseN(const char* a, const char* b, size_t length) {
+  for (size_t i = 0; i < length; i++) {
+    if (ToLower(a[i]) != ToLower(b[i]))
+      return false;
+    if (a[i] == '\0')
+      return true;
+  }
+  return true;
+}
 
 }  // namespace node
+
+#endif  // defined(NODE_WANT_INTERNALS) && NODE_WANT_INTERNALS
 
 #endif  // SRC_UTIL_INL_H_

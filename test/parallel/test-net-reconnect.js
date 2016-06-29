@@ -1,11 +1,10 @@
 'use strict';
-var common = require('../common');
+require('../common');
 var assert = require('assert');
 
 var net = require('net');
 
 var N = 50;
-var c = 0;
 var client_recv_count = 0;
 var client_end_count = 0;
 var disconnect_count = 0;
@@ -28,9 +27,9 @@ var server = net.createServer(function(socket) {
   });
 });
 
-server.listen(common.PORT, function() {
+server.listen(0, function() {
   console.log('SERVER listening');
-  var client = net.createConnection(common.PORT);
+  var client = net.createConnection(this.address().port);
 
   client.setEncoding('UTF8');
 
@@ -55,7 +54,7 @@ server.listen(common.PORT, function() {
     console.log('CLIENT disconnect');
     assert.equal(false, had_error);
     if (disconnect_count++ < N)
-      client.connect(common.PORT); // reconnect
+      client.connect(server.address().port); // reconnect
     else
       server.close();
   });

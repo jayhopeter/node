@@ -17,33 +17,32 @@ function serverHandler(sock) {
   }, 100);
 }
 
-var net  = require('net'),
-    weak    = require('weak'),
-    done    = 0,
-    count   = 0,
-    countGC = 0,
-    todo    = 500,
-    common = require('../common'),
-    assert = require('assert'),
-    PORT = common.PORT;
+const net = require('net');
+const weak = require('weak');
+require('../common');
+const assert = require('assert');
+const todo = 500;
+let done = 0;
+let count = 0;
+let countGC = 0;
 
 console.log('We should do ' + todo + ' requests');
 
 var server = net.createServer(serverHandler);
-server.listen(PORT, getall);
+server.listen(0, getall);
 
 function getall() {
   if (count >= todo)
     return;
 
   (function() {
-    var req = net.connect(PORT, '127.0.0.1');
+    var req = net.connect(server.address().port, server.address().address);
     req.resume();
     req.setTimeout(10, function() {
       //console.log('timeout (expected)')
       req.destroy();
       done++;
-      gc();
+      global.gc();
     });
 
     count++;
@@ -57,19 +56,19 @@ for (var i = 0; i < 10; i++)
   getall();
 
 function afterGC() {
-  countGC ++;
+  countGC++;
 }
 
 setInterval(status, 100).unref();
 
 function status() {
-  gc();
+  global.gc();
   console.log('Done: %d/%d', done, todo);
   console.log('Collected: %d/%d', countGC, count);
   if (done === todo) {
     /* Give libuv some time to make close callbacks. */
     setTimeout(function() {
-      gc();
+      global.gc();
       console.log('All should be collected now.');
       console.log('Collected: %d/%d', countGC, count);
       assert(count === countGC);

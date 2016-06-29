@@ -67,23 +67,10 @@ class ScavengingVisitor : public StaticVisitorBase {
     table_.Register(kVisitJSWeakCollection,
                     &ObjectEvacuationStrategy<POINTER_OBJECT>::Visit);
 
-    table_.Register(kVisitJSTypedArray,
-                    &ObjectEvacuationStrategy<POINTER_OBJECT>::Visit);
-
-    table_.Register(kVisitJSDataView,
-                    &ObjectEvacuationStrategy<POINTER_OBJECT>::Visit);
-
     table_.Register(kVisitJSRegExp,
                     &ObjectEvacuationStrategy<POINTER_OBJECT>::Visit);
 
-    if (marks_handling == IGNORE_MARKS) {
-      table_.Register(
-          kVisitJSFunction,
-          &ObjectEvacuationStrategy<POINTER_OBJECT>::template VisitSpecialized<
-              JSFunction::kSize>);
-    } else {
-      table_.Register(kVisitJSFunction, &EvacuateJSFunction);
-    }
+    table_.Register(kVisitJSFunction, &EvacuateJSFunction);
 
     table_.RegisterSpecializations<ObjectEvacuationStrategy<DATA_OBJECT>,
                                    kVisitDataObject, kVisitDataObjectGeneric>();
@@ -199,12 +186,9 @@ class ScavengingVisitor : public StaticVisitorBase {
       *slot = target;
 
       if (object_contents == POINTER_OBJECT) {
-        if (map->instance_type() == JS_FUNCTION_TYPE) {
-          heap->promotion_queue()->insert(target,
-                                          JSFunction::kNonWeakFieldsEndOffset);
-        } else {
-          heap->promotion_queue()->insert(target, object_size);
-        }
+        heap->promotion_queue()->insert(
+            target, object_size,
+            Marking::IsBlack(Marking::MarkBitFrom(object)));
       }
       heap->IncrementPromotedObjectsSize(object_size);
       return true;
@@ -216,7 +200,7 @@ class ScavengingVisitor : public StaticVisitorBase {
   template <ObjectContents object_contents, AllocationAlignment alignment>
   static inline void EvacuateObject(Map* map, HeapObject** slot,
                                     HeapObject* object, int object_size) {
-    SLOW_DCHECK(object_size <= Page::kMaxRegularHeapObjectSize);
+    SLOW_DCHECK(object_size <= Page::kAllocatableMemory);
     SLOW_DCHECK(object->Size() == object_size);
     Heap* heap = map->GetHeap();
 
@@ -236,14 +220,15 @@ class ScavengingVisitor : public StaticVisitorBase {
     // If promotion failed, we try to copy the object to the other semi-space
     if (SemiSpaceCopyObject<alignment>(map, slot, object, object_size)) return;
 
-    UNREACHABLE();
+    FatalProcessOutOfMemory("Scavenger: semi-space copy\n");
   }
 
 
   static inline void EvacuateJSFunction(Map* map, HeapObject** slot,
                                         HeapObject* object) {
-    ObjectEvacuationStrategy<POINTER_OBJECT>::template VisitSpecialized<
-        JSFunction::kSize>(map, slot, object);
+    ObjectEvacuationStrategy<POINTER_OBJECT>::Visit(map, slot, object);
+
+    if (marks_handling == IGNORE_MARKS) return;
 
     MapWord map_word = object->map_word();
     DCHECK(map_word.IsForwardingAddress());
@@ -253,7 +238,7 @@ class ScavengingVisitor : public StaticVisitorBase {
     if (Marking::IsBlack(mark_bit)) {
       // This object is black and it might not be rescanned by marker.
       // We should explicitly record code entry slot for compaction because
-      // promotion queue processing (IterateAndMarkPointersToFromSpace) will
+      // promotion queue processing (IteratePromotedObjectPointers) will
       // miss it as it is not HeapObject-tagged.
       Address code_entry_slot =
           target->address() + JSFunction::kCodeEntryOffset;
@@ -266,7 +251,8 @@ class ScavengingVisitor : public StaticVisitorBase {
 
   static inline void EvacuateFixedArray(Map* map, HeapObject** slot,
                                         HeapObject* object) {
-    int object_size = FixedArray::BodyDescriptor::SizeOf(map, object);
+    int length = reinterpret_cast<FixedArray*>(object)->synchronized_length();
+    int object_size = FixedArray::SizeFor(length);
     EvacuateObject<POINTER_OBJECT, kWordAligned>(map, slot, object,
                                                  object_size);
   }
@@ -283,28 +269,16 @@ class ScavengingVisitor : public StaticVisitorBase {
   static inline void EvacuateFixedTypedArray(Map* map, HeapObject** slot,
                                              HeapObject* object) {
     int object_size = reinterpret_cast<FixedTypedArrayBase*>(object)->size();
-    EvacuateObject<DATA_OBJECT, kWordAligned>(map, slot, object, object_size);
-
-    MapWord map_word = object->map_word();
-    DCHECK(map_word.IsForwardingAddress());
-    FixedTypedArrayBase* target =
-        reinterpret_cast<FixedTypedArrayBase*>(map_word.ToForwardingAddress());
-    if (target->base_pointer() != Smi::FromInt(0))
-      target->set_base_pointer(target, SKIP_WRITE_BARRIER);
+    EvacuateObject<POINTER_OBJECT, kWordAligned>(map, slot, object,
+                                                 object_size);
   }
 
 
   static inline void EvacuateFixedFloat64Array(Map* map, HeapObject** slot,
                                                HeapObject* object) {
     int object_size = reinterpret_cast<FixedFloat64Array*>(object)->size();
-    EvacuateObject<DATA_OBJECT, kDoubleAligned>(map, slot, object, object_size);
-
-    MapWord map_word = object->map_word();
-    DCHECK(map_word.IsForwardingAddress());
-    FixedTypedArrayBase* target =
-        reinterpret_cast<FixedTypedArrayBase*>(map_word.ToForwardingAddress());
-    if (target->base_pointer() != Smi::FromInt(0))
-      target->set_base_pointer(target, SKIP_WRITE_BARRIER);
+    EvacuateObject<POINTER_OBJECT, kDoubleAligned>(map, slot, object,
+                                                   object_size);
   }
 
 

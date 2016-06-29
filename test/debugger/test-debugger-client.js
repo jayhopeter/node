@@ -4,7 +4,7 @@ var common = require('../common');
 var assert = require('assert');
 var debug = require('_debugger');
 
-var debugPort = common.PORT + 1337;
+var debugPort = common.PORT;
 debug.port = debugPort;
 var spawn = require('child_process').spawn;
 
@@ -73,7 +73,7 @@ var d = 'Content-Length: 466\r\n\r\n' +
         '"context":{"ref":0},"text":"dns.js (lines: 241)"}},"refs":' +
         '[{"handle":0' +
         ',"type":"context","text":"#<a ContextMirror>"}],"running":true}' +
-        'Content-Length: 119\r\n\r\n' +
+        '\r\n\r\nContent-Length: 119\r\n\r\n' +
         '{"seq":11,"type":"event","event":"scriptCollected","success":true,' +
         '"body":{"script":{"id":26}},"refs":[],"running":true}';
 p.execute(d);

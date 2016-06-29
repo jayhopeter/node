@@ -1,9 +1,8 @@
 'use strict';
 var common = require('../common');
-var assert = require('assert');
 
 if (!common.hasCrypto) {
-  console.log('1..0 # Skipped: missing crypto');
+  common.skip('missing crypto');
   return;
 }
 
@@ -23,10 +22,10 @@ var server = https.Server(options, function(req, res) {
 });
 
 
-server.listen(common.PORT, function() {
+server.listen(0, function() {
   https.get({
     path: '/',
-    port: common.PORT,
+    port: this.address().port,
     rejectUnauthorized: true,
     servername: 'agent1',
     ca: options.ca

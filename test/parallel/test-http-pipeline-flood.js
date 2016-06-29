@@ -12,6 +12,9 @@ const assert = require('assert');
 // Normally when the writable stream emits a 'drain' event, the server then
 // uncorks the readable stream, although we arent testing that part here.
 
+// The issue being tested exists in Node.js 0.10.20 and is resolved in 0.10.21
+// and newer.
+
 switch (process.argv[2]) {
   case undefined:
     return parent();
@@ -23,9 +26,7 @@ switch (process.argv[2]) {
 
 function parent() {
   const http = require('http');
-  const bigResponse = new Buffer(10240).fill('x');
-  var gotTimeout = false;
-  var childClosed = false;
+  const bigResponse = Buffer.alloc(10240, 'x');
   var requests = 0;
   var connections = 0;
   var backloggedReqs = 0;
@@ -53,24 +54,20 @@ function parent() {
     connections++;
   });
 
-  server.listen(common.PORT, function() {
+  server.listen(0, function() {
     const spawn = require('child_process').spawn;
-    const args = [__filename, 'child'];
+    const args = [__filename, 'child', this.address().port];
     const child = spawn(process.execPath, args, { stdio: 'inherit' });
-    child.on('close', function() {
-      childClosed = true;
+    child.on('close', common.mustCall(function() {
       server.close();
-    });
+    }));
 
-    server.setTimeout(common.platformTimeout(200), function(conn) {
-      gotTimeout = true;
+    server.setTimeout(200, common.mustCall(function() {
       child.kill();
-    });
+    }));
   });
 
   process.on('exit', function() {
-    assert(gotTimeout);
-    assert(childClosed);
     assert.equal(connections, 1);
   });
 }
@@ -78,20 +75,17 @@ function parent() {
 function child() {
   const net = require('net');
 
-  const conn = net.connect({ port: common.PORT });
+  const port = +process.argv[3];
+  const conn = net.connect({ port: port });
 
-  var req = 'GET / HTTP/1.1\r\nHost: localhost:' +
-            common.PORT + '\r\nAccept: */*\r\n\r\n';
+  var req = `GET / HTTP/1.1\r\nHost: localhost:${port}\r\nAccept: */*\r\n\r\n`;
 
   req = new Array(10241).join(req);
 
-  conn.on('connect', function() {
-    // Terminate child after flooding.
-    setTimeout(function() { conn.destroy(); }, common.platformTimeout(1000));
-    write();
-  });
+  conn.on('connect', write);
 
-  conn.on('drain', write);
+  // `drain` should fire once and only once
+  conn.on('drain', common.mustCall(write));
 
   function write() {
     while (false !== conn.write(req, 'ascii'));

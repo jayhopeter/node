@@ -1,15 +1,13 @@
 'use strict';
 var common = require('../common');
-var assert = require('assert');
 
 if (!common.hasCrypto) {
-  console.log('1..0 # Skipped: missing crypto');
+  common.skip('missing crypto');
   return;
 }
 var https = require('https');
 
 var fs = require('fs');
-var exec = require('child_process').exec;
 
 var options = {
   key: fs.readFileSync(common.fixturesDir + '/keys/agent1-key.pem'),
@@ -19,10 +17,10 @@ var options = {
 // a server that never replies
 var server = https.createServer(options, function() {
   console.log('Got request.  Doing nothing.');
-}).listen(common.PORT, function() {
+}).listen(0, function() {
   var req = https.request({
     host: 'localhost',
-    port: common.PORT,
+    port: this.address().port,
     path: '/',
     method: 'GET',
     rejectUnauthorized: false

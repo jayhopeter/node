@@ -1,12 +1,11 @@
 'use strict';
+require('../common');
 var assert = require('assert');
 var net = require('net');
-var util = require('util');
-var common = require('../common');
 var revivals = 0;
 var deaths = 0;
 
-process.on('beforeExit', function() { deaths++; } );
+process.on('beforeExit', function() { deaths++; });
 
 process.once('beforeExit', tryImmediate);
 
@@ -30,7 +29,7 @@ function tryTimer() {
 function tryListen() {
   console.log('create a server');
   net.createServer()
-    .listen(common.PORT)
+    .listen(0)
     .on('listening', function() {
       revivals++;
       this.close();

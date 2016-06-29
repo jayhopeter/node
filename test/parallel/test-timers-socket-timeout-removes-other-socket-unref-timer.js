@@ -5,7 +5,6 @@
  */
 
 const common = require('../common');
-const assert = require('assert');
 const net = require('net');
 
 const clients = [];
@@ -32,7 +31,7 @@ const server = net.createServer(function onClient(client) {
   }
 });
 
-server.listen(common.PORT, common.localhostIPv4, function() {
+server.listen(0, common.localhostIPv4, function() {
   var nbClientsEnded = 0;
 
   function addEndedClient(client) {
@@ -40,11 +39,11 @@ server.listen(common.PORT, common.localhostIPv4, function() {
     if (nbClientsEnded === 2) {
       server.close();
     }
-  };
+  }
 
-  const client1 = net.connect({ port: common.PORT });
+  const client1 = net.connect({ port: this.address().port });
   client1.on('end', addEndedClient);
 
-  const client2 = net.connect({ port: common.PORT });
+  const client2 = net.connect({ port: this.address().port });
   client2.on('end', addEndedClient);
 });

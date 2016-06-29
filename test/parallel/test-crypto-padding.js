@@ -3,7 +3,7 @@ var common = require('../common');
 var assert = require('assert');
 
 if (!common.hasCrypto) {
-  console.log('1..0 # Skipped: missing crypto');
+  common.skip('missing crypto');
   return;
 }
 var crypto = require('crypto');
@@ -15,11 +15,11 @@ crypto.DEFAULT_ENCODING = 'buffer';
  * Input data
  */
 
-var ODD_LENGTH_PLAIN = 'Hello node world!',
-    EVEN_LENGTH_PLAIN = 'Hello node world!AbC09876dDeFgHi';
+const ODD_LENGTH_PLAIN = 'Hello node world!';
+const EVEN_LENGTH_PLAIN = 'Hello node world!AbC09876dDeFgHi';
 
-var KEY_PLAIN = 'S3c.r.e.t.K.e.Y!',
-    IV_PLAIN = 'blahFizz2011Buzz';
+const KEY_PLAIN = 'S3c.r.e.t.K.e.Y!';
+const IV_PLAIN = 'blahFizz2011Buzz';
 
 var CIPHER_NAME = 'aes-128-cbc';
 
@@ -65,7 +65,7 @@ function dec(encd, pad) {
   var decrypt = crypto.createDecipheriv(CIPHER_NAME, KEY_PLAIN, IV_PLAIN);
   decrypt.setAutoPadding(pad);
   var plain = decrypt.update(encd, 'hex');
-  plain += decrypt.final('binary');
+  plain += decrypt.final('latin1');
   return plain;
 }
 

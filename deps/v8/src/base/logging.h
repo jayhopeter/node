@@ -11,8 +11,11 @@
 
 #include "src/base/build_config.h"
 
-extern "C" void V8_Fatal(const char* file, int line, const char* format, ...);
+extern "C" V8_NORETURN void V8_Fatal(const char* file, int line,
+                                     const char* format, ...);
 
+extern "C" void V8_RuntimeError(const char* file, int line,
+                                const char* message);
 
 // The FATAL, UNREACHABLE and UNIMPLEMENTED macros are useful during
 // development, but they should not be relied on in the final product.
@@ -28,7 +31,7 @@ extern "C" void V8_Fatal(const char* file, int line, const char* format, ...);
   V8_Fatal("", 0, "%s", (msg))
 #define UNIMPLEMENTED()                         \
   V8_Fatal("", 0, "unimplemented code")
-#define UNREACHABLE() ((void) 0)
+#define UNREACHABLE() V8_Fatal("", 0, "unreachable code")
 #endif
 
 
@@ -153,6 +156,7 @@ void DumpBacktrace();
 #define DCHECK(condition)      CHECK(condition)
 #define DCHECK_EQ(v1, v2)      CHECK_EQ(v1, v2)
 #define DCHECK_NE(v1, v2)      CHECK_NE(v1, v2)
+#define DCHECK_GT(v1, v2)      CHECK_GT(v1, v2)
 #define DCHECK_GE(v1, v2)      CHECK_GE(v1, v2)
 #define DCHECK_LT(v1, v2)      CHECK_LT(v1, v2)
 #define DCHECK_LE(v1, v2)      CHECK_LE(v1, v2)
@@ -163,6 +167,7 @@ void DumpBacktrace();
 #define DCHECK(condition)      ((void) 0)
 #define DCHECK_EQ(v1, v2)      ((void) 0)
 #define DCHECK_NE(v1, v2)      ((void) 0)
+#define DCHECK_GT(v1, v2)      ((void) 0)
 #define DCHECK_GE(v1, v2)      ((void) 0)
 #define DCHECK_LT(v1, v2)      ((void) 0)
 #define DCHECK_LE(v1, v2)      ((void) 0)

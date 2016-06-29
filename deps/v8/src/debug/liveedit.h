@@ -61,8 +61,6 @@ class LiveEdit : AllStatic {
   enum FrameDropMode {
     // No frame has been dropped.
     FRAMES_UNTOUCHED,
-    // The top JS frame had been calling IC stub. IC stub mustn't be called now.
-    FRAME_DROPPED_IN_IC_CALL,
     // The top JS frame had been calling debug break slot stub. Patch the
     // address this stub jumps to in the end.
     FRAME_DROPPED_IN_DEBUG_SLOT_CALL,
@@ -117,7 +115,8 @@ class LiveEdit : AllStatic {
   // has restart the lowest found frames and drops all other frames above
   // if possible and if do_drop is true.
   static Handle<JSArray> CheckAndDropActivations(
-      Handle<JSArray> shared_info_array, bool do_drop);
+      Handle<JSArray> old_shared_array, Handle<JSArray> new_shared_array,
+      bool do_drop);
 
   // Restarts the call frame and completely drops all frames above it.
   // Return error message or NULL.
@@ -131,7 +130,8 @@ class LiveEdit : AllStatic {
     FUNCTION_BLOCKED_UNDER_NATIVE_CODE = 4,
     FUNCTION_REPLACED_ON_ACTIVE_STACK = 5,
     FUNCTION_BLOCKED_UNDER_GENERATOR = 6,
-    FUNCTION_BLOCKED_ACTIVE_GENERATOR = 7
+    FUNCTION_BLOCKED_ACTIVE_GENERATOR = 7,
+    FUNCTION_BLOCKED_NO_NEW_TARGET_ON_RESTART = 8
   };
 
   // Compares 2 strings line-by-line, then token-wise and returns diff in form
@@ -170,9 +170,6 @@ class LiveEdit : AllStatic {
    *   ...
    *   --- Bottom
    */
-  // A size of frame base including fp. Padding words starts right above
-  // the base.
-  static const int kFrameDropperFrameSize = 4;
   // A number of words that should be reserved on stack for the LiveEdit use.
   // Stored on stack in form of Smi.
   static const int kFramePaddingInitialSize = 1;
@@ -255,8 +252,8 @@ class JSArrayBasedStruct {
   }
 
   Handle<Object> GetField(int field_position) {
-    return Object::GetElement(
-        isolate(), array_, field_position).ToHandleChecked();
+    return JSReceiver::GetElement(isolate(), array_, field_position)
+        .ToHandleChecked();
   }
 
   int GetSmiValueField(int field_position) {
@@ -336,9 +333,8 @@ class SharedInfoWrapper : public JSArrayBasedStruct<SharedInfoWrapper> {
   static bool IsInstance(Handle<JSArray> array) {
     if (array->length() != Smi::FromInt(kSize_)) return false;
     Handle<Object> element(
-        Object::GetElement(array->GetIsolate(),
-                           array,
-                           kSharedInfoOffset_).ToHandleChecked());
+        JSReceiver::GetElement(array->GetIsolate(), array, kSharedInfoOffset_)
+            .ToHandleChecked());
     if (!element->IsJSValue()) return false;
     return Handle<JSValue>::cast(element)->value()->IsSharedFunctionInfo();
   }
@@ -364,6 +360,7 @@ class SharedInfoWrapper : public JSArrayBasedStruct<SharedInfoWrapper> {
   friend class JSArrayBasedStruct<SharedInfoWrapper>;
 };
 
-} }  // namespace v8::internal
+}  // namespace internal
+}  // namespace v8
 
 #endif /* V8_DEBUG_LIVEEDIT_H_ */

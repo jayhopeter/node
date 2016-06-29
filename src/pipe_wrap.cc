@@ -26,7 +26,6 @@ using v8::HandleScope;
 using v8::Integer;
 using v8::Local;
 using v8::Object;
-using v8::PropertyAttribute;
 using v8::String;
 using v8::Undefined;
 using v8::Value;
@@ -63,8 +62,8 @@ Local<Object> PipeWrap::Instantiate(Environment* env, AsyncWrap* parent) {
   Local<Function> constructor = env->pipe_constructor_template()->GetFunction();
   CHECK_EQ(false, constructor.IsEmpty());
   Local<Value> ptr = External::New(env->isolate(), parent);
-  Local<Object> instance = constructor->NewInstance(1, &ptr);
-  CHECK_EQ(false, instance.IsEmpty());
+  Local<Object> instance =
+      constructor->NewInstance(env->context(), 1, &ptr).ToLocalChecked();
   return handle_scope.Escape(instance);
 }
 
@@ -81,6 +80,7 @@ void PipeWrap::Initialize(Local<Object> target,
   env->SetProtoMethod(t, "close", HandleWrap::Close);
   env->SetProtoMethod(t, "unref", HandleWrap::Unref);
   env->SetProtoMethod(t, "ref", HandleWrap::Ref);
+  env->SetProtoMethod(t, "hasRef", HandleWrap::HasRef);
 
   StreamWrap::AddMethods(env, t);
 
@@ -138,7 +138,8 @@ PipeWrap::PipeWrap(Environment* env,
 
 
 void PipeWrap::Bind(const FunctionCallbackInfo<Value>& args) {
-  PipeWrap* wrap = Unwrap<PipeWrap>(args.Holder());
+  PipeWrap* wrap;
+  ASSIGN_OR_RETURN_UNWRAP(&wrap, args.Holder());
   node::Utf8Value name(args.GetIsolate(), args[0]);
   int err = uv_pipe_bind(&wrap->handle_, *name);
   args.GetReturnValue().Set(err);
@@ -147,7 +148,8 @@ void PipeWrap::Bind(const FunctionCallbackInfo<Value>& args) {
 
 #ifdef _WIN32
 void PipeWrap::SetPendingInstances(const FunctionCallbackInfo<Value>& args) {
-  PipeWrap* wrap = Unwrap<PipeWrap>(args.Holder());
+  PipeWrap* wrap;
+  ASSIGN_OR_RETURN_UNWRAP(&wrap, args.Holder());
   int instances = args[0]->Int32Value();
   uv_pipe_pending_instances(&wrap->handle_, instances);
 }
@@ -155,7 +157,8 @@ void PipeWrap::SetPendingInstances(const FunctionCallbackInfo<Value>& args) {
 
 
 void PipeWrap::Listen(const FunctionCallbackInfo<Value>& args) {
-  PipeWrap* wrap = Unwrap<PipeWrap>(args.Holder());
+  PipeWrap* wrap;
+  ASSIGN_OR_RETURN_UNWRAP(&wrap, args.Holder());
   int backlog = args[0]->Int32Value();
   int err = uv_listen(reinterpret_cast<uv_stream_t*>(&wrap->handle_),
                       backlog,
@@ -183,7 +186,7 @@ void PipeWrap::OnConnection(uv_stream_t* handle, int status) {
   };
 
   if (status != 0) {
-    pipe_wrap->MakeCallback(env->onconnection_string(), ARRAY_SIZE(argv), argv);
+    pipe_wrap->MakeCallback(env->onconnection_string(), arraysize(argv), argv);
     return;
   }
 
@@ -191,14 +194,15 @@ void PipeWrap::OnConnection(uv_stream_t* handle, int status) {
   Local<Object> client_obj = Instantiate(env, pipe_wrap);
 
   // Unwrap the client javascript object.
-  PipeWrap* wrap = Unwrap<PipeWrap>(client_obj);
+  PipeWrap* wrap;
+  ASSIGN_OR_RETURN_UNWRAP(&wrap, client_obj);
   uv_stream_t* client_handle = reinterpret_cast<uv_stream_t*>(&wrap->handle_);
   if (uv_accept(handle, client_handle))
     return;
 
   // Successful accept. Call the onconnection callback in JavaScript land.
   argv[1] = client_obj;
-  pipe_wrap->MakeCallback(env->onconnection_string(), ARRAY_SIZE(argv), argv);
+  pipe_wrap->MakeCallback(env->onconnection_string(), arraysize(argv), argv);
 }
 
 // TODO(bnoordhuis) Maybe share this with TCPWrap?
@@ -233,7 +237,7 @@ void PipeWrap::AfterConnect(uv_connect_t* req, int status) {
     Boolean::New(env->isolate(), writable)
   };
 
-  req_wrap->MakeCallback(env->oncomplete_string(), ARRAY_SIZE(argv), argv);
+  req_wrap->MakeCallback(env->oncomplete_string(), arraysize(argv), argv);
 
   delete req_wrap;
 }
@@ -242,7 +246,8 @@ void PipeWrap::AfterConnect(uv_connect_t* req, int status) {
 void PipeWrap::Open(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
 
-  PipeWrap* wrap = Unwrap<PipeWrap>(args.Holder());
+  PipeWrap* wrap;
+  ASSIGN_OR_RETURN_UNWRAP(&wrap, args.Holder());
 
   int fd = args[0]->Int32Value();
 
@@ -256,7 +261,8 @@ void PipeWrap::Open(const FunctionCallbackInfo<Value>& args) {
 void PipeWrap::Connect(const FunctionCallbackInfo<Value>& args) {
   Environment* env = Environment::GetCurrent(args);
 
-  PipeWrap* wrap = Unwrap<PipeWrap>(args.Holder());
+  PipeWrap* wrap;
+  ASSIGN_OR_RETURN_UNWRAP(&wrap, args.Holder());
 
   CHECK(args[0]->IsObject());
   CHECK(args[1]->IsString());

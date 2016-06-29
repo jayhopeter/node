@@ -3,14 +3,13 @@ var common = require('../common');
 var assert = require('assert');
 
 if (!common.hasCrypto) {
-  console.log('1..0 # Skipped: missing crypto');
+  common.skip('missing crypto');
   return;
 }
 var tls = require('tls');
 
 var fs = require('fs');
 
-var PORT = common.PORT;
 var dir = common.fixturesDir;
 var options = { key: fs.readFileSync(dir + '/test_key.pem'),
                 cert: fs.readFileSync(dir + '/test_cert.pem'),
@@ -20,10 +19,10 @@ var server = tls.createServer(options, onconnection);
 var gotChunk = false;
 var gotDrain = false;
 
-var timer = setTimeout(function() {
+setTimeout(function() {
   console.log('not ok - timed out');
   process.exit(1);
-}, common.platformTimeout(500));
+}, common.platformTimeout(1000));
 
 function onconnection(conn) {
   conn.on('data', function(c) {
@@ -41,10 +40,9 @@ function onconnection(conn) {
   });
 }
 
-server.listen(PORT, function() {
-  var chunk = new Buffer(1024);
-  chunk.fill('x');
-  var opt = { port: PORT, rejectUnauthorized: false };
+server.listen(0, function() {
+  var chunk = Buffer.alloc(1024, 'x');
+  var opt = { port: this.address().port, rejectUnauthorized: false };
   var conn = tls.connect(opt, function() {
     conn.on('drain', ondrain);
     write();

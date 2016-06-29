@@ -4,7 +4,7 @@ var common = require('../common');
 var assert = require('assert');
 var spawn = require('child_process').spawn;
 
-var port = common.PORT + 1337;
+var port = common.PORT;
 
 var child;
 var buffer = '';
@@ -103,7 +103,7 @@ function addTest(input, output) {
     } else {
       quit();
     }
-  };
+  }
   expected.push({input: input, lines: output, callback: next});
 }
 
