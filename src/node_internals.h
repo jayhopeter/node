@@ -135,9 +135,11 @@ constexpr size_t arraysize(const T(&)[N]) { return N; }
 
 bool IsExceptionDecorated(Environment* env, v8::Local<v8::Value> er);
 
+enum ErrorHandlingMode { FATAL_ERROR, CONTEXTIFY_ERROR };
 void AppendExceptionLine(Environment* env,
                          v8::Local<v8::Value> er,
-                         v8::Local<v8::Message> message);
+                         v8::Local<v8::Message> message,
+                         enum ErrorHandlingMode mode);
 
 NO_RETURN void FatalError(const char* location, const char* message);
 
@@ -171,24 +173,6 @@ inline bool IsLittleEndian() {
 
 inline bool IsBigEndian() {
   return GetEndianness() == kBigEndian;
-}
-
-// parse index for external array data
-inline MUST_USE_RESULT bool ParseArrayIndex(v8::Local<v8::Value> arg,
-                                            size_t def,
-                                            size_t* ret) {
-  if (arg->IsUndefined()) {
-    *ret = def;
-    return true;
-  }
-
-  int64_t tmp_i = arg->IntegerValue();
-
-  if (tmp_i < 0)
-    return false;
-
-  *ret = static_cast<size_t>(tmp_i);
-  return true;
 }
 
 class ArrayBufferAllocator : public v8::ArrayBuffer::Allocator {

@@ -474,6 +474,7 @@ test_lines({
 
 // test boxed primitives output the correct values
 assert.equal(util.inspect(new String('test')), '[String: \'test\']');
+assert.equal(util.inspect(Object(Symbol('test'))), '[Symbol: Symbol(test)]');
 assert.equal(util.inspect(new Boolean(false)), '[Boolean: false]');
 assert.equal(util.inspect(new Boolean(true)), '[Boolean: true]');
 assert.equal(util.inspect(new Number(0)), '[Number: 0]');
@@ -708,4 +709,17 @@ checkAlignment(new Map(big_array.map(function(y) { return [y, null]; })));
 {
   const x = new Uint8Array(101);
   assert(!/1 more item/.test(util.inspect(x, {maxArrayLength: Infinity})));
+}
+
+{
+  const obj = {foo: 'abc', bar: 'xyz'};
+  const oneLine = util.inspect(obj, {breakLength: Infinity});
+  // Subtract four for the object's two curly braces and two spaces of padding.
+  // Add one more to satisfy the strictly greater than condition in the code.
+  const breakpoint = oneLine.length - 5;
+  const twoLines = util.inspect(obj, {breakLength: breakpoint});
+
+  assert.strictEqual(oneLine, '{ foo: \'abc\', bar: \'xyz\' }');
+  assert.strictEqual(oneLine, util.inspect(obj, {breakLength: breakpoint + 1}));
+  assert.strictEqual(twoLines, '{ foo: \'abc\',\n  bar: \'xyz\' }');
 }
