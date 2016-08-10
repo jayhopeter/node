@@ -1,6 +1,6 @@
 # File System
 
-    Stability: 2 - Stable
+> Stability: 2 - Stable
 
 <!--name=fs-->
 
@@ -180,6 +180,13 @@ added: v0.1.93
 
 Emitted when the `ReadStream`'s underlying file descriptor has been closed
 using the `fs.close()` method.
+
+### readStream.bytesRead
+<!-- YAML
+added: REPLACEME
+-->
+
+The number of bytes read so far.
 
 ### readStream.path
 <!-- YAML
@@ -384,7 +391,8 @@ fs.appendFile('message.txt', 'data to append', 'utf8', callback);
 
 Any specified file descriptor has to have been opened for appending.
 
-_Note: Specified file descriptors will not be closed automatically._
+_Note: If a file descriptor is specified as the `file`, it will not be closed
+automatically._
 
 ## fs.appendFileSync(file, data[, options])
 <!-- YAML
@@ -584,7 +592,7 @@ added: v0.0.2
 deprecated: v1.0.0
 -->
 
-    Stability: 0 - Deprecated: Use [`fs.stat()`][] or [`fs.access()`][] instead.
+> Stability: 0 - Deprecated: Use [`fs.stat()`][] or [`fs.access()`][] instead.
 
 * `path` {String | Buffer}
 * `callback` {Function}
@@ -610,8 +618,8 @@ added: v0.1.21
 deprecated: v1.0.0
 -->
 
-    Stability: 0 - Deprecated: Use [`fs.statSync()`][] or [`fs.accessSync()`][]
-    instead.
+> Stability: 0 - Deprecated: Use [`fs.statSync()`][] or [`fs.accessSync()`][]
+> instead.
 
 * `path` {String | Buffer}
 
@@ -1136,7 +1144,8 @@ fs.readFile('/etc/passwd', 'utf8', callback);
 
 Any specified file descriptor has to support reading.
 
-_Note: Specified file descriptors will not be closed automatically._
+_Note: If a file descriptor is specified as the `file`, it will not be closed
+automatically._
 
 ## fs.readFileSync(file[, options])
 <!-- YAML
@@ -1671,7 +1680,8 @@ Note that it is unsafe to use `fs.writeFile` multiple times on the same file
 without waiting for the callback. For this scenario,
 `fs.createWriteStream` is strongly recommended.
 
-_Note: Specified file descriptors will not be closed automatically._
+_Note: If a file descriptor is specified as the `file`, it will not be closed
+automatically._
 
 ## fs.writeFileSync(file, data[, options])
 <!-- YAML

@@ -223,8 +223,8 @@ For example:
 
 ```js
 process.on('unhandledRejection', (reason, p) => {
-    console.log("Unhandled Rejection at: Promise ", p, " reason: ", reason);
-    // application specific logging, throwing an error, or other logic here
+  console.log('Unhandled Rejection at: Promise', p, 'reason:', reason);
+  // application specific logging, throwing an error, or other logic here
 });
 
 somePromise.then((res) => {
@@ -457,9 +457,10 @@ added: v0.1.27
 
 The `process.argv` property returns an array containing the command line
 arguments passed when the Node.js process was launched. The first element will
-be [`process.execPath`]. The second element will be the path to the
-JavaScript file being executed. The remaining elements will be any additional
-command line arguments.
+be [`process.execPath`]. See `process.argv0` if access to the original value of
+`argv[0]` is needed.  The second element will be the path to the JavaScript
+file being executed. The remaining elements will be any additional command line
+arguments.
 
 For example, assuming the following script for `process-args.js`:
 
@@ -484,6 +485,22 @@ Would generate the output:
 2: one
 3: two=three
 4: four
+```
+
+## process.argv0
+<!-- YAML
+added: REPLACEME
+-->
+
+The `process.argv0` property stores a read-only copy of the original value of
+`argv[0]` passed when Node.js starts.
+
+```js
+$ bash -c 'exec -a customArgv0 ./node'
+> process.argv[0]
+'/Volumes/code/external/node/out/Release/node'
+> process.argv0
+'customArgv0'
 ```
 
 ## process.chdir(directory)
@@ -1643,8 +1660,9 @@ cases:
   source code internal in Node.js's bootstrapping process threw an error
   when the bootstrapping function was called.  This is extremely rare,
   and generally can only happen during development of Node.js itself.
-* `12` **Invalid Debug Argument** - The `--debug` and/or `--debug-brk`
-  options were set, but an invalid port number was chosen.
+* `12` **Invalid Debug Argument** - The `--debug`, `--inspect` and/or
+  `--debug-brk` options were set, but the port number chosen was invalid
+  or unavailable.
 * `>128` **Signal Exits** - If Node.js receives a fatal signal such as
   `SIGKILL` or `SIGHUP`, then its exit code will be `128` plus the
   value of the signal code.  This is a standard Unix practice, since
